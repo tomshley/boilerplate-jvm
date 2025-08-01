@@ -1,0 +1,12 @@
+package com.tomshley.boilerplate.jvm.reqreply.models
+
+import scala.concurrent.duration.*
+trait RedirectPathView {
+  lazy val expiringRedirectPath: ExpiringValue = {
+    ExpiringValue(expirationDuration = Some((360 * 10).days), value=redirectPath)
+  }
+  lazy val redirectPathHmac: String = {
+    expiringRedirectPath.toBase64Hmac
+  }
+  def redirectPath:Option[String]
+}
