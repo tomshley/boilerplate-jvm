@@ -17,14 +17,16 @@
  *
  */
 
-package com.tomshley.boilerplate.jvm.http2
+package com.tomshley.boilerplate.jvm.transport
 
 import org.apache.pekko.actor.typed.ActorSystem
-import org.apache.pekko.http.scaladsl.server.Route
+import org.apache.pekko.http.scaladsl.Http
 
-trait WebServerRoutingBoilerplate {
-  def routes[A](system: ActorSystem[?], arg: Option[A]): Seq[Route] =
-    throw new NotImplementedError(
-      "This method must be implemented to use services. Ok if not using services"
-    )
+import scala.concurrent.Future
+
+trait Http2Boilerplate[T] {
+  def start(interface: String,
+            port: Int,
+            system: ActorSystem[?],
+            binding: T): Future[Http.ServerBinding]
 }

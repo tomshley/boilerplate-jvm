@@ -17,7 +17,7 @@
  *
  */
 
-package com.tomshley.boilerplate.jvm.http2
+package com.tomshley.boilerplate.jvm.transport
 
 import org.apache.pekko.actor
 import org.apache.pekko.actor.typed.ActorSystem
