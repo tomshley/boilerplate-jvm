@@ -17,7 +17,7 @@
  *
  */
 
-package com.tomshley.boilerplate.jvm.http2
+package com.tomshley.boilerplate.jvm.transport
 
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.http.scaladsl.{Http, model}
