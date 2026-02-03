@@ -5,6 +5,6 @@ import org.apache.pekko.util.ByteString
 
 import scala.concurrent.Future
 
-trait TCPServerHandlerBoilerplate:
+trait TcpServerHandlerBoilerplate:
   /** Handle one inbound message and return a response. */
   def onMessage(msg: ByteString)(using ActorSystem[?]): Future[ByteString]

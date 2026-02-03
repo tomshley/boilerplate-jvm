@@ -1,8 +1,8 @@
 package com.tomshley.boilerplate.jvm.transport
 
-
-import org.apache.pekko
+import org.apache.pekko.actor
 import org.apache.pekko.actor.typed.ActorSystem
+import org.apache.pekko.actor.typed.scaladsl.adapter.*
 import org.apache.pekko.stream.scaladsl.{Flow, Framing, Tcp}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.util.ByteString
@@ -13,19 +13,19 @@ import scala.util.{Success, Failure}
 
 
 object TcpServerBoilerplate
-  extends TransportBoilerplate[Tcp.ServerBinding, TCPRequestHandlerBoilerplate] {
+  extends TransportBoilerplate[Tcp.ServerBinding, TcpServerHandlerBoilerplate] {
 
   override def start(
                       interface: String,
                       port: Int,
                       system: ActorSystem[?],
-                      handler: TCPRequestHandlerBoilerplate
+                      handler: TcpServerHandlerBoilerplate
                     ): Future[Tcp.ServerBinding] = {
 
-    // Conventions: same as WebServerBoilerplate & GrpcServerBoilerplate
     given sys: ActorSystem[?] = system
+    given classicSystem: actor.ActorSystem = system.toClassic
     given ec: ExecutionContext = system.executionContext
-    given mat: Materializer = Materializer(system)
+    given mat: Materializer = Materializer(classicSystem)
 
     val flow: Flow[ByteString, ByteString, _] =
       Flow[ByteString]
