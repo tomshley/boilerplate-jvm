@@ -19,7 +19,9 @@
 
 package com.tomshley.boilerplate.jvm.transport
 
+import org.apache.pekko.Done
 import org.apache.pekko.actor
+import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.adapter.*
 import org.apache.pekko.stream.scaladsl.{Flow, Tcp}
@@ -52,10 +54,18 @@ object TcpServerBoilerplate
         .mapAsync(4)(msg => handler.onMessage(msg))
         .map(handler.outboundFraming)
 
-    val bound =
+    val bound: Future[Tcp.ServerBinding] =
       Tcp()
         .bindAndHandle(flow, interface, port)
-        .map(_.addToCoordinatedShutdown(3.seconds))
+
+    bound.foreach { binding =>
+      CoordinatedShutdown(classicSystem).addTask(
+        CoordinatedShutdown.PhaseServiceUnbind,
+        "tcp-server-unbind"
+      ) { () =>
+        binding.unbind().map(_ => Done)(ec)
+      }
+    }
 
     bound.onComplete {
       case Success(binding) =>
