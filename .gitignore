@@ -22,6 +22,8 @@ cache.config
 credentials.config
 endpoint.config
 
+.metals/
+
 *.env
 # Compiled Java class files
 *.class

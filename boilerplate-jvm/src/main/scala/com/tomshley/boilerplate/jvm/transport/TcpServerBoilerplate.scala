@@ -1,16 +1,34 @@
+/*
+ * copyright 2023 tomshley llc
+ *
+ * licensed under the apache license, version 2.0 (the "license");
+ * you may not use this file except in compliance with the license.
+ * you may obtain a copy of the license at
+ *
+ * http://www.apache.org/licenses/license-2.0
+ *
+ * unless required by applicable law or agreed to in writing, software
+ * distributed under the license is distributed on an "as is" basis,
+ * without warranties or conditions of any kind, either express or implied.
+ * see the license for the specific language governing permissions and
+ * limitations under the license.
+ *
+ * @author thomas schena @sgoggles <https://github.com/sgoggles> | <https://gitlab.com/sgoggles>
+ *
+ */
+
 package com.tomshley.boilerplate.jvm.transport
 
 import org.apache.pekko.actor
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.adapter.*
-import org.apache.pekko.stream.scaladsl.{Flow, Framing, Tcp}
+import org.apache.pekko.stream.scaladsl.{Flow, Tcp}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.util.ByteString
 
+import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Success, Failure}
-
-
 
 object TcpServerBoilerplate
   extends TransportBoilerplate[Tcp.ServerBinding, TcpServerHandlerBoilerplate] {
@@ -29,25 +47,23 @@ object TcpServerBoilerplate
 
     val flow: Flow[ByteString, ByteString, _] =
       Flow[ByteString]
-        // Message framing: newline-delimited text frames
-        .via(Framing.delimiter(ByteString("\n"), maximumFrameLength = 65536))
-        .map(_.compact) // raw bytes, no trimming or string conversion
+        .via(handler.framing)
+        .map(_.compact)
         .mapAsync(4)(msg => handler.onMessage(msg))
-        .map(_ ++ ByteString("\n")) // newline termination for the outbound frame
+        .map(handler.outboundFraming)
 
-    val binding =
-      Tcp().bindAndHandle(flow, interface, port)
+    val bound =
+      Tcp()
+        .bindAndHandle(flow, interface, port)
+        .map(_.addToCoordinatedShutdown(3.seconds))
 
-    //
-    // Logging style matches your existing boilerplates
-    //
-    binding.onComplete {
-      case Success(b) =>
-        val addr = b.localAddress
+    bound.onComplete {
+      case Success(binding) =>
+        val address = binding.localAddress
         system.log.info(
           "TCP server online at {}:{}",
-          addr.getHostString,
-          addr.getPort
+          address.getHostString,
+          address.getPort
         )
 
       case Failure(ex) =>
@@ -55,6 +71,6 @@ object TcpServerBoilerplate
         system.terminate()
     }
 
-    binding
+    bound
   }
 }
