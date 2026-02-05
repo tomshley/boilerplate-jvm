@@ -19,50 +19,68 @@
 
 package com.tomshley.boilerplate.jvm.transport
 
+import org.apache.pekko.Done
+import org.apache.pekko.actor
+import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.ActorSystem
-import org.apache.pekko.http.scaladsl.{Http, model}
+import org.apache.pekko.actor.typed.scaladsl.adapter.*
+import org.apache.pekko.stream.scaladsl.{Flow, Tcp}
+import org.apache.pekko.stream.Materializer
+import org.apache.pekko.util.ByteString
 
 import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success}
+import scala.util.{Success, Failure}
 
-object GrpcServerBoilerplate
-  extends TransportBoilerplate[
-    Http.ServerBinding,
-    model.HttpRequest => Future[model.HttpResponse]
-  ] {
+object TcpServerBoilerplate
+  extends TransportBoilerplate[Tcp.ServerBinding, TcpServerHandlerBoilerplate] {
 
   override def start(
                       interface: String,
                       port: Int,
                       system: ActorSystem[?],
-                      service: model.HttpRequest => scala.concurrent.Future[model.HttpResponse]
-                    ): Future[Http.ServerBinding] = {
+                      handler: TcpServerHandlerBoilerplate
+                    ): Future[Tcp.ServerBinding] = {
 
     given sys: ActorSystem[?] = system
+    given classicSystem: actor.ActorSystem = system.toClassic
     given ec: ExecutionContext = system.executionContext
+    given mat: Materializer = Materializer(classicSystem)
 
-    val bound =
-      Http()
-        .newServerAt(interface, port)
-        .bind(service)
-        .map(_.addToCoordinatedShutdown(3.seconds))
+    val flow: Flow[ByteString, ByteString, _] =
+      Flow[ByteString]
+        .via(handler.framing)
+        .map(_.compact)
+        .mapAsync(4)(msg => handler.onMessage(msg))
+        .map(handler.outboundFraming)
+
+    val bound: Future[Tcp.ServerBinding] =
+      Tcp()
+        .bindAndHandle(flow, interface, port)
+
+    bound.foreach { binding =>
+      CoordinatedShutdown(classicSystem).addTask(
+        CoordinatedShutdown.PhaseServiceUnbind,
+        "tcp-server-unbind"
+      ) { () =>
+        binding.unbind().map(_ => Done)(ec)
+      }
+    }
 
     bound.onComplete {
       case Success(binding) =>
         val address = binding.localAddress
         system.log.info(
-          "gRPC server online at {}:{}",
+          "TCP server online at {}:{}",
           address.getHostString,
           address.getPort
         )
 
       case Failure(ex) =>
-        system.log.error("Failed to bind gRPC server, terminating system", ex)
+        system.log.error("Failed to bind TCP server, terminating system", ex)
         system.terminate()
     }
 
     bound
   }
-
 }
