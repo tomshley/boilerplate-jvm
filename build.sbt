@@ -71,6 +71,7 @@ lazy val boilerplateProject = publishableProject(boilerplateProjectName)
       "org.scalatest" %% "scalatest" % "3.2.19" % Test,
       "org.apache.pekko" %% "pekko-actor-testkit-typed" % PekkoVersion % Test,
       "org.apache.pekko" %% "pekko-stream-testkit" % PekkoVersion % Test,
+      "org.apache.pekko" %% "pekko-http-testkit" % PekkoHttpVersion % Test,
       "org.apache.pekko" %% "pekko-persistence-testkit" % PekkoVersion % Test
     )
   )
