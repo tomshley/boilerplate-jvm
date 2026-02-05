@@ -33,12 +33,14 @@ import org.apache.pekko.http.scaladsl.server.Route
 import java.time.Instant
 import scala.concurrent.{ExecutionContextExecutor, Future}
 
-object WebServerBoilerplate extends Http2Boilerplate[Seq[Route]] {
+object WebServerBoilerplate extends TransportBoilerplate[Http.ServerBinding, Seq[Route]] {
 
-  override def start(interface: String,
-                     port: Int,
-                     system: ActorSystem[?],
-                     binding: Seq[Route]): Future[Http.ServerBinding] = {
+  override def start(
+                      interface: String,
+                      port: Int,
+                      system: ActorSystem[?],
+                      routes: Seq[Route]
+                    ): Future[Http.ServerBinding] = {
 
     import org.apache.pekko.actor.typed.scaladsl.adapter.*
     given classicSystem: actor.ActorSystem = system.toClassic
@@ -50,6 +52,6 @@ object WebServerBoilerplate extends Http2Boilerplate[Seq[Route]] {
         path("heartbeat") {
           complete(Instant.now().toString)
         }
-      }) ++ binding *))
+      }) ++ routes *))
   }
 }

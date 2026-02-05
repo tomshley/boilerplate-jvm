@@ -19,10 +19,10 @@
 
 package com.tomshley.boilerplate.jvm.util;
 
-import com.tomshley.boilerplate.lib.format.FileFormat;
-import com.tomshley.boilerplate.lib.io.LocalFile;
-import com.tomshley.boilerplate.lib.io.ResourceFile;
-import com.tomshley.boilerplate.lib.io.TempFile;
+import com.tomshley.boilerplate.jvm.format.FileFormat;
+import com.tomshley.boilerplate.jvm.io.LocalFile;
+import com.tomshley.boilerplate.jvm.io.ResourceFile;
+import com.tomshley.boilerplate.jvm.io.TempFile;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtil;
 import org.apache.commons.lang3.StringUtils;
@@ -155,14 +155,10 @@ public final class JavaFileUtils {
         }
     }
 
-    public static TempFile createTempFile(final String prefix, final FileFormat format) throws IOException {
-        return createTempFile(prefix, format != null ? format.getExtension() : null);
-    }
-
-    public static TempFile createTempFile(final String prefix, final String extension) throws IOException {
-        final TempFile tempFile = new TempFile(File.createTempFile(prefix,
+    public static File createTempFile(final String prefix, final String extension) throws IOException {
+        final File tempFile = File.createTempFile(prefix,
                 JavaStringUtils.ensureStartsWith(extension, "."),
-                getTempDirectory(true)).getAbsolutePath());
+                getTempDirectory(true));
         tempFile.deleteOnExit();
         return tempFile;
     }
@@ -618,7 +614,7 @@ public final class JavaFileUtils {
 
     @NotNull
     private static File getLocalCacheFile(@NotNull final URL url, final String cacheDir) {
-        return new LocalFile(cacheDir + getCacheFileName(url));
+        return new File(cacheDir + getCacheFileName(url));
 
     }
 

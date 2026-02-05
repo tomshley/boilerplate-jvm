@@ -27,17 +27,20 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 
 object GrpcServerBoilerplate
-    extends Http2Boilerplate[
-      model.HttpRequest => scala.concurrent.Future[model.HttpResponse]
-    ] {
+  extends TransportBoilerplate[
+    Http.ServerBinding,
+    model.HttpRequest => Future[model.HttpResponse]
+  ] {
+
   override def start(
-    interface: String,
-    port: Int,
-    system: ActorSystem[?],
-    service: model.HttpRequest => scala.concurrent.Future[model.HttpResponse]
-  ): Future[Http.ServerBinding] = {
+                      interface: String,
+                      port: Int,
+                      system: ActorSystem[?],
+                      service: model.HttpRequest => scala.concurrent.Future[model.HttpResponse]
+                    ): Future[Http.ServerBinding] = {
+
     given sys: ActorSystem[?] = system
-    given ec:ExecutionContext = system.executionContext
+    given ec: ExecutionContext = system.executionContext
 
     val bound =
       Http()
@@ -49,14 +52,16 @@ object GrpcServerBoilerplate
       case Success(binding) =>
         val address = binding.localAddress
         system.log.info(
-          "Rpc Server online at gRPC app {}:{}",
+          "gRPC server online at {}:{}",
           address.getHostString,
           address.getPort
         )
+
       case Failure(ex) =>
-        system.log.error("Failed to bind gRPC endpoint, terminating system", ex)
+        system.log.error("Failed to bind gRPC server, terminating system", ex)
         system.terminate()
     }
+
     bound
   }
 
