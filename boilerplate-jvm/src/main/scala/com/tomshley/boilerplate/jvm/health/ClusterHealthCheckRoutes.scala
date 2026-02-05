@@ -19,7 +19,7 @@ final class ClusterHealthCheckRoutes(host: String, port: Int)(implicit system: A
     val status = cluster.selfMember.status
     if (status == MemberStatus.Up || status == MemberStatus.WeaklyUp)
       complete(
-        HttpEntity(ContentTypes.`application/json`, s"""{ "heatlh": "OK" }"""))
+        HttpEntity(ContentTypes.`application/json`, s"""{ "health": "OK" }"""))
     else
       complete(StatusCodes.NotFound)
   }

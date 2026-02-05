@@ -16,7 +16,7 @@ final class StaticAssetRoutingSpec extends AnyWordSpec with Matchers with Scalat
 
   "StaticAssetRouting" should {
     "serve a JS asset with a javascript content type" in {
-      Get("/static/test.js") ~> routes ~> check {
+      Get("/static/static-asset-routing-fixture.js") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         contentType.mediaType.value shouldBe "text/javascript"
         responseAs[String].trim should include("console.log")
@@ -24,7 +24,7 @@ final class StaticAssetRoutingSpec extends AnyWordSpec with Matchers with Scalat
     }
 
     "serve a CSS asset with a css content type" in {
-      Get("/static/test.css") ~> routes ~> check {
+      Get("/static/static-asset-routing-fixture.css") ~> routes ~> check {
         status shouldBe StatusCodes.OK
         contentType.mediaType.value shouldBe "text/css"
         responseAs[String].trim should include("body")
@@ -32,7 +32,7 @@ final class StaticAssetRoutingSpec extends AnyWordSpec with Matchers with Scalat
     }
 
     "reject unsupported extensions" in {
-      Get("/static/test.xyz") ~> routes ~> check {
+      Get("/static/static-asset-routing-fixture.xyz") ~> routes ~> check {
         rejections.length should be > 0
         rejections.exists(_.isInstanceOf[StaticAssetRoutingRejection]) shouldBe true
       }

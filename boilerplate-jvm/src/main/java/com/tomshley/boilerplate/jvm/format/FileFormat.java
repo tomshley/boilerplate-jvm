@@ -349,10 +349,10 @@ public class FileFormat implements Comparable<FileFormat>, Serializable {
             digester.setValidating(false);
 
             // Create Top-Level Class
-            digester.addObjectCreate("file-formats", "com.tomshley.brands.global.tech.tware.products.boilerplate.lib.format.FileFormat$Configuration");
+            digester.addObjectCreate("file-formats", "com.tomshley.boilerplate.jvm.format.FileFormat$Configuration");
 
             // Create Format
-            digester.addObjectCreate("file-formats/format", "com.tomshley.brands.global.tech.tware.products.boilerplate.lib.format.FileFormat$Configuration$FormatBean");
+            digester.addObjectCreate("file-formats/format", "com.tomshley.boilerplate.jvm.format.FileFormat$Configuration$FormatBean");
             digester.addSetProperties("file-formats/format");
 
             // Add Content Types
@@ -364,7 +364,7 @@ public class FileFormat implements Comparable<FileFormat>, Serializable {
             digester.addCallParam("file-formats/format/extensions/extension", 0, "value");
 
             // Add Format
-            digester.addSetNext("file-formats/format", "addFormat", "com.tomshley.brands.global.tech.tware.products.boilerplate.lib.format.FileFormat$Configuration$FormatBean");
+            digester.addSetNext("file-formats/format", "addFormat", "com.tomshley.boilerplate.jvm.format.FileFormat$Configuration$FormatBean");
 
             try {
                 return digester.parse(is);

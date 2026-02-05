@@ -92,7 +92,7 @@ object Idempotent {
 
     def toSummary: Summary = {
       Summary(
-        idempotencyKey.get,
+        idempotencyKey.getOrElse(""),
         isIdempotent,
         repliedOn,
         replyHeaders,

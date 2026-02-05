@@ -22,7 +22,6 @@ package com.tomshley.boilerplate.jvm.util;
 import com.tomshley.boilerplate.jvm.format.FileFormat;
 import com.tomshley.boilerplate.jvm.io.LocalFile;
 import com.tomshley.boilerplate.jvm.io.ResourceFile;
-import com.tomshley.boilerplate.jvm.io.TempFile;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
