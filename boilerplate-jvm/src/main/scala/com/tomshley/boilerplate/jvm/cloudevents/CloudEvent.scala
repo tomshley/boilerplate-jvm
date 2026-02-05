@@ -36,17 +36,17 @@ import java.util.Base64
  *    To allow some of the variables to come from the header we make all of the variables here optional
  */
 
-case class CloudEvent(var id: String,
-                      var source: String,
-                      var specversion: String,
-                      var `type`: String,
-                      var datacontenttype: Option[String] = None,
-                      var dataschema: Option[String] = None,
-                      var subject: Option[String] = None,
-                      var time: Option[String] = None,
-                      var data: Option[String] = None,
-                      var data_base64: Option[Array[Byte]] = None,
-                      var extensions: Option[Map[String, String]] = None)
+case class CloudEvent(id: String,
+                      source: String,
+                      specversion: String,
+                      `type`: String,
+                      datacontenttype: Option[String] = None,
+                      dataschema: Option[String] = None,
+                      subject: Option[String] = None,
+                      time: Option[String] = None,
+                      data: Option[String] = None,
+                      data_base64: Option[Array[Byte]] = None,
+                      extensions: Option[Map[String, String]] = None)
     extends MarshallModel[CloudEvent] {
 
   def dataBase64String: Option[String] =
