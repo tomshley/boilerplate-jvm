@@ -35,5 +35,18 @@ final class ChunkedTransferStateSpec extends AnyWordSpec with Matchers {
       State(Some("u"), Some("b"), Some("k"), Map.empty, isInProgress = true, isComplete = false).nextPartNo shouldBe 1
       State(Some("u"), Some("b"), Some("k"), Map(1 -> PartInfo("e1", 2), 3 -> PartInfo("e3", 2)), isInProgress = true, isComplete = false).nextPartNo shouldBe 4
     }
+
+    "find missingPartNos" in {
+      State(Some("u"), Some("b"), Some("k"), Map.empty, isInProgress = true, isComplete = false).missingPartNos shouldBe empty
+      State(Some("u"), Some("b"), Some("k"), Map(1 -> PartInfo("e1", 2), 2 -> PartInfo("e2", 3)), isInProgress = true, isComplete = false).missingPartNos shouldBe empty
+      State(Some("u"), Some("b"), Some("k"), Map(1 -> PartInfo("e1", 2), 3 -> PartInfo("e3", 2)), isInProgress = true, isComplete = false).missingPartNos shouldBe Seq(2)
+      State(Some("u"), Some("b"), Some("k"), Map(2 -> PartInfo("e2", 2), 5 -> PartInfo("e5", 2)), isInProgress = true, isComplete = false).missingPartNos shouldBe Seq(1, 3, 4)
+    }
+
+    "compute hasNoGaps" in {
+      State(Some("u"), Some("b"), Some("k"), Map.empty, isInProgress = true, isComplete = false).hasNoGaps shouldBe true
+      State(Some("u"), Some("b"), Some("k"), Map(1 -> PartInfo("e1", 2), 2 -> PartInfo("e2", 3)), isInProgress = true, isComplete = false).hasNoGaps shouldBe true
+      State(Some("u"), Some("b"), Some("k"), Map(1 -> PartInfo("e1", 2), 3 -> PartInfo("e3", 2)), isInProgress = true, isComplete = false).hasNoGaps shouldBe false
+    }
   }
 }

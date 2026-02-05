@@ -1,6 +1,6 @@
 package com.tomshley.boilerplate.jvm.cloudevents
 
-import com.sksamuel.avro4s.{AvroSchema, RecordFormat, SchemaFor, Encoder, Decoder, ToRecord, FromRecord}
+import com.sksamuel.avro4s.{AvroSchema, RecordFormat, ToRecord, FromRecord}
 import com.tomshley.boilerplate.jvm.marshalling.KafkaAvroMarshaller
 import org.apache.kafka.common.serialization.Serializer
 
