@@ -66,5 +66,51 @@ final class TopicCreationSpec extends AnyWordSpec with Matchers {
         )
       }
     }
+
+    "not NPE when exception has no cause" in {
+      val allFuture = new KafkaFutureImpl[Void]()
+      allFuture.completeExceptionally(
+        new RuntimeException("no cause")
+      )
+
+      val emptyValues =
+        Collections
+          .emptyMap[String, KafkaFuture[CreateTopicsResult.TopicMetadataAndConfig]]()
+
+      val createTopicsResultWithAll = new CreateTopicsResult(
+        emptyValues
+      ) {
+        override def all(): KafkaFuture[Void] = allFuture
+      }
+
+      val handler: InvocationHandler = new InvocationHandler {
+        override def invoke(proxy: Object, method: Method, args: Array[Object] | Null): Object = {
+          method.getName match {
+            case "createTopics" => createTopicsResultWithAll
+            case "close"        => java.lang.Boolean.TRUE
+            case "toString"     => "AdminStub"
+            case _              => throw new UnsupportedOperationException(method.getName)
+          }
+        }
+      }
+
+      val adminStub: Admin = Proxy
+        .newProxyInstance(
+          classOf[Admin].getClassLoader,
+          Array(classOf[Admin]),
+          handler
+        )
+        .asInstanceOf[Admin]
+
+      an[ExitCalled] should be thrownBy {
+        TopicCreation.createTopicsWith(
+          clientConfig = Map.empty,
+          topics = Map("t" -> TopicCreation.TopicSettings(1, 1.toShort)),
+          topicCreationTimeout = Some((1L, TimeUnit.SECONDS)),
+          clientFactory = _ => adminStub,
+          exitFn = code => throw ExitCalled(code)
+        )
+      }
+    }
   }
 }

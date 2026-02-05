@@ -45,11 +45,16 @@ class InMemoryBlobStoreBoilerplate(using mat: Materializer, ec: ExecutionContext
       partNo: Int,
       data: Source[ByteString, ?]
   ): Future[PartETag] = {
-    data.runWith(Sink.fold(ByteString.empty)(_ ++ _)).map { bytes =>
-      val etag = md5(bytes)
-      val partETag = PartETag(partNo, etag, bytes.length)
-      uploads.get(session.uploadId).foreach(_.put(partNo, (bytes, partETag)))
-      partETag
+    data.runWith(Sink.fold(ByteString.empty)(_ ++ _)).flatMap { bytes =>
+      uploads.get(session.uploadId) match {
+        case Some(partMap) =>
+          val etag = md5(bytes)
+          val partETag = PartETag(partNo, etag, bytes.length)
+          partMap.put(partNo, (bytes, partETag))
+          Future.successful(partETag)
+        case None =>
+          Future.failed(new IllegalStateException(s"Unknown upload session: ${session.uploadId}"))
+      }
     }
   }
 
@@ -60,15 +65,22 @@ class InMemoryBlobStoreBoilerplate(using mat: Materializer, ec: ExecutionContext
     uploads.get(session.uploadId) match {
       case Some(partMap) =>
         val sortedParts = parts.sortBy(_.partNo)
-        val fullData = sortedParts.flatMap(p => partMap.get(p.partNo).map(_._1)).reduce(_ ++ _)
-        val checksum = md5(fullData)
-        val etag = s"${checksum}-${parts.size}"
-        val ref = BlobReference(session.bucket, session.key, etag, checksum, fullData.length)
-        val metadata = ObjectMetadata(Some("application/octet-stream"), fullData.length)
-        objects.put(objectKey(session.bucket, session.key), (fullData, metadata))
-        uploads.remove(session.uploadId)
-        sessions.remove(session.uploadId)
-        Future.successful(ref)
+        val missingParts = sortedParts.filterNot(p => partMap.contains(p.partNo))
+        if (missingParts.nonEmpty) {
+          Future.failed(new IllegalStateException(
+            s"Missing parts: ${missingParts.map(_.partNo).mkString(", ")}"
+          ))
+        } else {
+          val fullData = sortedParts.flatMap(p => partMap.get(p.partNo).map(_._1)).fold(ByteString.empty)(_ ++ _)
+          val checksum = md5(fullData)
+          val etag = s"${checksum}-${parts.size}"
+          val ref = BlobReference(session.bucket, session.key, etag, checksum, fullData.length)
+          val metadata = ObjectMetadata(Some("application/octet-stream"), fullData.length)
+          objects.put(objectKey(session.bucket, session.key), (fullData, metadata))
+          uploads.remove(session.uploadId)
+          sessions.remove(session.uploadId)
+          Future.successful(ref)
+        }
       case None =>
         Future.failed(new IllegalStateException(s"Unknown upload session: ${session.uploadId}"))
     }

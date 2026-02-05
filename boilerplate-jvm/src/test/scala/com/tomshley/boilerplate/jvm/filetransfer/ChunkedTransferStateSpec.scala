@@ -23,6 +23,7 @@ final class ChunkedTransferStateSpec extends AnyWordSpec with Matchers {
     "compute canResume" in {
       State(Some("u"), Some("b"), Some("k"), Map.empty, isInProgress = true, isComplete = false).canResume shouldBe true
       State(Some("u"), Some("b"), Some("k"), Map.empty, isInProgress = false, isComplete = true).canResume shouldBe false
+      State(Some("u"), Some("b"), Some("k"), Map.empty, isInProgress = false, isComplete = false).canResume shouldBe false
     }
 
     "sum totalBytesUploaded" in {

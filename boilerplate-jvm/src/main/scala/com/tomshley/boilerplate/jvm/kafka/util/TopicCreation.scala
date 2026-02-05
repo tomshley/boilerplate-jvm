@@ -28,7 +28,7 @@ object TopicCreation {
     })
 
     logger.info(
-      s"Starting the topics creation for: ${topics.keys.mkString(", ")}" 
+      s"Starting the topics creation for: ${topics.keys.mkString(", ")}"
     )
 
     val createTopicsResult: CreateTopicsResult =
@@ -58,7 +58,7 @@ object TopicCreation {
 
     Try(createTopicsResult.all().get(timeOut, timeUnit)) match {
 
-      case Failure(ex) if ex.getCause.isInstanceOf[TopicExistsException] =>
+      case Failure(ex) if Option(ex.getCause).exists(_.isInstanceOf[TopicExistsException]) =>
         logger.info("Topic creation stage completed. (Topics already created)")
 
       case failure @ Failure(_: InterruptedException | _: ExecutionException) =>

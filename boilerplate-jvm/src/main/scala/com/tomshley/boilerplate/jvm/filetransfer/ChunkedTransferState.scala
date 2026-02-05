@@ -35,7 +35,7 @@ trait ChunkedTransferState {
   def isFailed: Boolean = !isInProgress && !isComplete && uploadId.isDefined
   
   /** Can resume this upload (has session, not complete) */
-  def canResume: Boolean = uploadId.isDefined && !isComplete && !isFailed
+  def canResume: Boolean = uploadId.isDefined && isInProgress && !isComplete
   
   /** Total bytes uploaded so far */
   def totalBytesUploaded: Long = uploadedParts.values.map(_.sizeBytes).sum
@@ -43,8 +43,17 @@ trait ChunkedTransferState {
   /** Number of parts uploaded */
   def partsCount: Int = uploadedParts.size
   
-  /** Get next expected part number (1-indexed) */
+  /** Get next sequential part number (assumes no gaps, 1-indexed) */
   def nextPartNo: Int = if (uploadedParts.isEmpty) 1 else uploadedParts.keys.max + 1
+  
+  /** Find missing part numbers (gaps) in the sequence from 1 to max uploaded */
+  def missingPartNos: Seq[Int] = {
+    if (uploadedParts.isEmpty) Seq.empty
+    else (1 to uploadedParts.keys.max).filterNot(uploadedParts.contains)
+  }
+  
+  /** True if all parts 1..max are present (no gaps) */
+  def hasNoGaps: Boolean = missingPartNos.isEmpty
 }
 
 /**
