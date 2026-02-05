@@ -77,7 +77,7 @@ object PublishGitLabPlugin extends AutoPlugin {
 // =============================================================================
 // Value Add Project Plugin - common settings for library projects
 // =============================================================================
-object ValueAddProjectPlugin extends AutoPlugin {
+object ScalaVersionAndBuildSettingsPlugin extends AutoPlugin {
   override def trigger = noTrigger
   
   override def projectSettings: Seq[Setting[_]] = Seq(
@@ -98,7 +98,7 @@ object ValueAddProjectPlugin extends AutoPlugin {
 // =============================================================================
 // Projects Helper Plugin - utility for defining publishable projects
 // =============================================================================
-object ProjectsHelperPlugin extends AutoPlugin {
+object PublishableProjectHelperPlugin extends AutoPlugin {
   override def trigger = noTrigger
   
   object autoImport {

@@ -10,7 +10,7 @@ val PekkoKafkaConnector = "1.1.0-M1"
 val PekkoHttpVersion = "1.1.0"
 
 lazy val boilerplateProject = publishableProject(boilerplateProjectName)
-  .enablePlugins(ValueAddProjectPlugin, VersionFilePlugin, PublishGitLabPlugin)
+  .enablePlugins(ScalaVersionAndBuildSettingsPlugin, VersionFilePlugin, PublishGitLabPlugin)
   .settings(
     organization := boilerplateProjectOrgName,
     publishGitLabProjectId := 70100980,
@@ -75,7 +75,7 @@ lazy val boilerplateProject = publishableProject(boilerplateProjectName)
 
 lazy val boilerplateJvm = (project in file("."))
   .enablePlugins(
-    ProjectsHelperPlugin
+    PublishableProjectHelperPlugin
   )
   .aggregate(boilerplateProject)
   .settings(publish / skip := true)
