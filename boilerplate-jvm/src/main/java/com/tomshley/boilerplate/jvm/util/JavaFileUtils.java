@@ -24,7 +24,7 @@ import com.tomshley.boilerplate.jvm.io.LocalFile;
 import com.tomshley.boilerplate.jvm.io.ResourceFile;
 import com.tomshley.boilerplate.jvm.io.TempFile;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.IOUtil;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -102,7 +102,7 @@ public final class JavaFileUtils {
             try {
                 final OutputStream destStream = destFile.openOutputStream();
                 try {
-                    IOUtil.copy(srcStream, destStream);
+                    IOUtils.copy(srcStream, destStream);
                     return true;
                 } finally {
                     destStream.close();
