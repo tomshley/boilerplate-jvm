@@ -17,7 +17,7 @@
  *
  */
 
-package com.tomshley.boilerplate.jvm
+package com.tomshley.boilerplate.jvm.managedmain
 
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
@@ -25,7 +25,7 @@ import org.slf4j.{Logger, LoggerFactory}
 
 import scala.util.control.NonFatal
 
-protected[jvm] trait ManagedMain {
+protected[managedmain] trait ManagedMain {
   def apply(serviceName:String, body: (system:ActorSystem[?]) => Unit): Unit = {
     def logger: Logger = LoggerFactory.getLogger(s"$serviceName-$name")
 
@@ -44,8 +44,8 @@ protected[jvm] trait ManagedMain {
 
   }
 
-  protected[jvm] lazy val name:String
-  protected[jvm] def bootstrap(system: ActorSystem[?], logger: Logger): Unit = {
+  protected[managedmain] lazy val name:String
+  protected[managedmain] def bootstrap(system: ActorSystem[?], logger: Logger): Unit = {
     logger.info(s"Bootstrapping $name")
   }
 }

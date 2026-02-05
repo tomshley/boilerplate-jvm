@@ -1,9 +1,7 @@
 package com.tomshley.boilerplate.jvm.cloudevents
 
 import com.tomshley.boilerplate.jvm.marshalling.models.MarshallModel
-import java.net.URI
-import java.time.ZonedDateTime
-import scala.collection.mutable
+import java.util.Base64
 
 // Based on https://github.com/cloudevents/sdk-java/blob/master/core/src/main/java/io/cloudevents/core/v1/CloudEventV1.java
 // and https://github.com/cloudevents/sdk-java/blob/master/core/src/main/java/io/cloudevents/core/impl/BaseCloudEvent.java
@@ -38,15 +36,19 @@ import scala.collection.mutable
  *    To allow some of the variables to come from the header we make all of the variables here optional
  */
 
-case class CloudEvent(var id: String,
-//                      var source: URI,
-                      var specversion: String)
-//                      var `type`: String,
-//                      var datacontenttype: Option[String],
-//                      var dataschema: Option[URI],
-//                      var subject: Option[String],
-//                      var time: Option[ZonedDateTime],
-//                      var data: Option[String],
-//                      var data_base64: Option[Array[Byte]],
-//                      var extensions: Option[Map[String, Any]])
-    extends MarshallModel[CloudEvent]
+case class CloudEvent(id: String,
+                      source: String,
+                      specversion: String,
+                      `type`: String,
+                      datacontenttype: Option[String] = None,
+                      dataschema: Option[String] = None,
+                      subject: Option[String] = None,
+                      time: Option[String] = None,
+                      data: Option[String] = None,
+                      data_base64: Option[Array[Byte]] = None,
+                      extensions: Option[Map[String, String]] = None)
+    extends MarshallModel[CloudEvent] {
+
+  def dataBase64String: Option[String] =
+    data_base64.map(bytes => Base64.getEncoder.encodeToString(bytes))
+}

@@ -14,8 +14,8 @@ trait Validations {
     }
   }
 
-  def isValidPhoneFormat(email: String): Boolean = {
-    phoneExpression.findFirstMatchIn(email) match {
+  def isValidPhoneFormat(phone: String): Boolean = {
+    phoneExpression.findFirstMatchIn(phone) match {
       case Some(_) => true
       case None => false
     }
