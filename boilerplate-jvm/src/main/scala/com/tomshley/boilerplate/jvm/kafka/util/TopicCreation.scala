@@ -15,16 +15,20 @@ object TopicCreation {
     (5, TimeUnit.SECONDS)
   final case class TopicSettings(partitions: Int, replicationFactor: Short)
 
-  def createTopics(clientConfig: Map[String, Object],
-                   topics: Map[String, TopicSettings],
-                   topicCreationTimeout: Option[(Long, TimeUnit)]): Admin = {
-    val client = Admin.create(clientConfig.asJava)
+  private[util] def createTopicsWith(
+    clientConfig: Map[String, Object],
+    topics: Map[String, TopicSettings],
+    topicCreationTimeout: Option[(Long, TimeUnit)],
+    clientFactory: Map[String, Object] => Admin,
+    exitFn: Int => Nothing
+  ): Admin = {
+    val client = clientFactory(clientConfig)
     val newTopics = topics.map(t => {
       new NewTopic(t._1, t._2.partitions, t._2.replicationFactor)
     })
 
     logger.info(
-      s"Starting the topics creation for: ${topics.keys.mkString(", ")}"
+      s"Starting the topics creation for: ${topics.keys.mkString(", ")}" 
     )
 
     val createTopicsResult: CreateTopicsResult =
@@ -60,19 +64,30 @@ object TopicCreation {
       case failure @ Failure(_: InterruptedException | _: ExecutionException) =>
         logger.error("The topic creation failed to complete")
         failure.exception.printStackTrace()
-        sys.exit(2)
+        exitFn(2)
 
       case Failure(exception) =>
         logger.error("The following exception occurred during the topic creation")
         exception.printStackTrace()
-        sys.exit(3)
+        exitFn(3)
 
       case Success(_) =>
         logger.info("Topic creation stage completed.")
     }
 
     client
+  }
 
+  def createTopics(clientConfig: Map[String, Object],
+                   topics: Map[String, TopicSettings],
+                   topicCreationTimeout: Option[(Long, TimeUnit)]): Admin = {
+    createTopicsWith(
+      clientConfig,
+      topics,
+      topicCreationTimeout,
+      clientFactory = (cfg: Map[String, Object]) => Admin.create(cfg.asJava),
+      exitFn = (code: Int) => sys.exit(code)
+    )
   }
 
 }
