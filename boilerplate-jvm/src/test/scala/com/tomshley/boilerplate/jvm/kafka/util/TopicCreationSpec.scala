@@ -7,7 +7,7 @@ import org.apache.kafka.common.internals.KafkaFutureImpl
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{TimeUnit, TimeoutException}
 import java.lang.reflect.{InvocationHandler, Method, Proxy}
 import java.util.Collections
 import scala.jdk.CollectionConverters.*
@@ -67,11 +67,13 @@ final class TopicCreationSpec extends AnyWordSpec with Matchers {
       }
     }
 
-    "not NPE when exception has no cause" in {
-      val allFuture = new KafkaFutureImpl[Void]()
-      allFuture.completeExceptionally(
-        new RuntimeException("no cause")
-      )
+    "not NPE when exception getCause is null (e.g. TimeoutException)" in {
+      // TimeoutException has getCause == null, which would NPE without
+      // the Option(ex.getCause) guard in TopicCreation
+      val timeoutFuture: KafkaFuture[Void] = new KafkaFutureImpl[Void]() {
+        override def get(timeout: Long, unit: TimeUnit): Void =
+          throw new TimeoutException("simulated timeout")
+      }
 
       val emptyValues =
         Collections
@@ -80,7 +82,7 @@ final class TopicCreationSpec extends AnyWordSpec with Matchers {
       val createTopicsResultWithAll = new CreateTopicsResult(
         emptyValues
       ) {
-        override def all(): KafkaFuture[Void] = allFuture
+        override def all(): KafkaFuture[Void] = timeoutFuture
       }
 
       val handler: InvocationHandler = new InvocationHandler {
