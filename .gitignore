@@ -1,13 +1,4 @@
-# SBT
-.bsp/
-target/
-project/project/
-project/target/
-.sbt/
-
-# Compiled
-*.class
-*.jar
+# --- BEGIN multi-project ignores ---
 
 # IDE
 .idea/
@@ -30,3 +21,16 @@ endpoint.config
 # OS
 .DS_Store
 Thumbs.db
+
+# --- END multi-project ignores ---
+
+# SBT
+.bsp/
+target/
+project/project/
+project/target/
+.sbt/
+
+# Compiled
+*.class
+*.jar
