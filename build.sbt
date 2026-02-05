@@ -9,6 +9,8 @@ val PekkoManagementVersion = "1.0.0"
 val PekkoKafkaConnector = "1.1.0-M1"
 val PekkoHttpVersion = "1.1.0"
 
+ThisBuild / versionScheme := Some("semver-spec")
+
 lazy val boilerplateProject = publishableProject(boilerplateProjectName)
   .enablePlugins(ScalaVersionAndBuildSettingsPlugin, VersionFilePlugin, PublishGitLabPlugin)
   .settings(
