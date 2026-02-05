@@ -17,21 +17,17 @@
  *
  */
 
-package com.tomshley.boilerplate.jvm
+package com.tomshley.boilerplate.jvm.managedmain
 
 import org.apache.pekko.actor.typed.ActorSystem
-import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.management.cluster.bootstrap.ClusterBootstrap
 import org.apache.pekko.management.scaladsl.PekkoManagement
-import org.slf4j.{Logger, LoggerFactory}
+import org.slf4j.Logger
 
-import scala.concurrent.ExecutionContext
-import scala.util.control.NonFatal
+object PekkoClusterMain extends ManagedMain {
+  override protected[managedmain] lazy val name: String = "PekkoClusterMain"
 
-object ManagedPekkoClusterMain extends ManagedMain {
-  override protected[jvm] lazy val name: String = "ManagedPekkoClusterMain"
-
-  override protected[jvm] def bootstrap(system: ActorSystem[_], logger: Logger): Unit = {
+  override protected[managedmain] def bootstrap(system: ActorSystem[?], logger: Logger): Unit = {
     super.bootstrap(system, logger)
 
     PekkoManagement(system).start()

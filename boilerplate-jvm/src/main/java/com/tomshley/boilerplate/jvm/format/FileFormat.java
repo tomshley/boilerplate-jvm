@@ -19,8 +19,8 @@
 
 package com.tomshley.boilerplate.jvm.format;
 
-import com.tomshley.boilerplate.lib.io.ResourceFile;
-import com.tomshley.boilerplate.lib.util.JavaEnumUtils;
+import com.tomshley.boilerplate.jvm.io.ResourceFile;
+import com.tomshley.boilerplate.jvm.util.JavaEnumUtils;
 import org.apache.commons.digester3.Digester;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;

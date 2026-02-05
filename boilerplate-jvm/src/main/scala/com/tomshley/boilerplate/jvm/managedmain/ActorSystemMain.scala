@@ -17,16 +17,9 @@
  *
  */
 
-package com.tomshley.boilerplate.jvm.transport
+package com.tomshley.boilerplate.jvm.managedmain
 
-import org.apache.pekko.actor.typed.ActorSystem
-import org.apache.pekko.http.scaladsl.Http
+object ActorSystemMain extends ManagedMain {
 
-import scala.concurrent.Future
-
-trait Http2Boilerplate[T] {
-  def start(interface: String,
-            port: Int,
-            system: ActorSystem[?],
-            binding: T): Future[Http.ServerBinding]
+  override protected[managedmain] lazy val name: String = "ActorSystemMain"
 }
