@@ -1,17 +1,40 @@
-# Tomshley LLC Hexagonal Library
+<p>
+  <img src="assets/brand/logo.svg" alt="Tomshley Logo" width="200"/>
+</p>
+
+# Tomshley Boilerplate JVM
+
+Hexagonal architecture boilerplate for JVM/Scala projects.
+
+This repository is part of the **Tomshley – OSS IP Division** and is maintained by **Tomshley LLC**.
+
+---
+
+## Overview
+
+This project provides opinionated boilerplate for building JVM applications using hexagonal architecture patterns with Scala and SBT.
+
+---
+
+## Contributing
+
+See CONTRIBUTING.md.
+
+---
+
+## Security
+
+See SECURITY.md.
+
+---
 
 ## License
-Copyright 2025 Tomshley LLC
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Apache License 2.0. See LICENSE and NOTICE.md.
 
-    http://www.apache.org/licenses/LICENSE-2.0
+---
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+## Credits
 
+Maintained by Tomshley LLC.
+Tomshley and the Tomshley logo are trademarks of Tomshley LLC.
