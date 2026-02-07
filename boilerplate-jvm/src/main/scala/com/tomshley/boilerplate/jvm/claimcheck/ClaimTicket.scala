@@ -5,6 +5,7 @@
 
 package com.tomshley.boilerplate.jvm.claimcheck
 
+import com.tomshley.boilerplate.jvm.reqreply.CborSerializable
 import java.time.Instant
 
 /**
@@ -13,48 +14,16 @@ import java.time.Instant
  * Like a coat check ticket: you check your item, get a ticket, continue without it.
  * When you need it back, present the ticket to claim it.
  */
-trait ClaimTicket {
-  /** Unique ticket number */
-  def number: String
-  
-  /** Storage location (bucket, topic, etc.) */
-  def location: String
-  
-  /** Type of storage backend */
-  def storeType: String
-  
-  /** When the item was checked */
-  def checkedAt: Option[Instant] = None
-  
-  /** Optional expiration */
-  def expiresAt: Option[Instant] = None
-  
-  /** Optional size in bytes */
-  def sizeBytes: Option[Long] = None
-}
-
-/**
- * Simple claim ticket implementation.
- */
-case class SimpleClaimTicket(
+case class ClaimTicket(
     number: String,
     location: String,
     storeType: String,
-    override val checkedAt: Option[Instant] = None,
-    override val expiresAt: Option[Instant] = None,
-    override val sizeBytes: Option[Long] = None
-) extends ClaimTicket
+    checkedAt: Option[Instant] = None,
+    expiresAt: Option[Instant] = None,
+    sizeBytes: Option[Long] = None
+) extends CborSerializable
 
 object ClaimTicket {
-  /**
-   * Create a simple claim ticket.
-   */
-  def apply(
-      number: String,
-      location: String,
-      storeType: String
-  ): ClaimTicket = SimpleClaimTicket(number, location, storeType)
-  
   /**
    * Create a claim ticket with timestamp.
    */
@@ -62,7 +31,7 @@ object ClaimTicket {
       number: String,
       location: String,
       storeType: String
-  ): ClaimTicket = SimpleClaimTicket(
+  ): ClaimTicket = ClaimTicket(
     number = number,
     location = location,
     storeType = storeType,

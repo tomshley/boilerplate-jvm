@@ -38,7 +38,7 @@ final class ClaimCheckSpec extends AnyWordSpec with Matchers with ScalaFutures {
       val enricher = new InMemoryContentEnricher()
       val claimCheck = ClaimCheck(enricher, location = "bucket-a")
 
-      val ticket: ClaimTicket = SimpleClaimTicket(number = "missing", location = "bucket-a", storeType = enricher.storeType)
+      val ticket: ClaimTicket = ClaimTicket(number = "missing", location = "bucket-a", storeType = enricher.storeType)
       claimCheck.claim(ticket).futureValue shouldBe None
     }
 
