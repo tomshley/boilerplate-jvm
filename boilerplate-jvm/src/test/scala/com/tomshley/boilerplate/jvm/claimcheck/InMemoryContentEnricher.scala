@@ -14,7 +14,7 @@ final class InMemoryContentEnricher(using ec: ExecutionContext) extends ContentE
       location: String
   ): Future[ClaimTicket] = {
     dataByKey.put((location, key), data)
-    Future.successful(SimpleClaimTicket(number = key, location = location, storeType = storeType, sizeBytes = Some(data.length.toLong)))
+    Future.successful(ClaimTicket(number = key, location = location, storeType = storeType, sizeBytes = Some(data.length.toLong)))
   }
 
   override def retrieve(ticket: ClaimTicket): Future[Option[Array[Byte]]] =
