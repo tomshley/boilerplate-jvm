@@ -5,13 +5,15 @@
 
 package com.tomshley.boilerplate.jvm.filetransfer
 
+import com.tomshley.boilerplate.jvm.reqreply.CborSerializable
+
 /**
  * State trait for chunked transfer entities.
  * 
  * Extend this in your domain-specific state to track multipart upload progress.
  * Provides common fields and helper methods for upload lifecycle management.
  */
-trait ChunkedTransferState {
+trait ChunkedTransferState extends CborSerializable {
   
   /** Upload session ID from storage backend */
   def uploadId: Option[String]
@@ -62,4 +64,4 @@ trait ChunkedTransferState {
 case class PartInfo(
     etag: String,
     sizeBytes: Long
-)
+) extends CborSerializable
