@@ -34,3 +34,7 @@ project/target/
 # Compiled
 *.class
 *.jar
+
+# Secrets
+.credentials*
+!.credentials*.example
