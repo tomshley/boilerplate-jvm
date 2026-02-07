@@ -9,6 +9,7 @@ import org.apache.pekko.http.scaladsl.server.{Route, StandardRoute}
 import org.apache.pekko.stream.Materializer
 
 import scala.io.StdIn
+import scala.concurrent.Future
 
 final class ClusterHealthCheckRoutes(host: String, port: Int)(implicit system: ActorSystem) {
 
@@ -18,12 +19,12 @@ final class ClusterHealthCheckRoutes(host: String, port: Int)(implicit system: A
     val status = cluster.selfMember.status
     if (status == MemberStatus.Up || status == MemberStatus.WeaklyUp)
       complete(
-        HttpEntity(ContentTypes.`application/json`, s"""{ "heatlh": "OK" }"""))
+        HttpEntity(ContentTypes.`application/json`, s"""{ "health": "OK" }"""))
     else
       complete(StatusCodes.NotFound)
   }
 
-  private val route: Route =
+  def routes: Route =
     path("ready") {
       get {
         ready
@@ -35,8 +36,11 @@ final class ClusterHealthCheckRoutes(host: String, port: Int)(implicit system: A
         }
       }
 
+  def bind()(implicit mat: Materializer): Future[Http.ServerBinding] =
+    Http().bindAndHandle(routes, host, port)
+
   def bootHealthCheck()(implicit mat: Materializer): Unit = {
-    val bindingFuture = Http().bindAndHandle(route, host, port)
+    val bindingFuture = bind()
     StdIn.readLine() // let it run until user presses return
     bindingFuture
       .flatMap(_.unbind())(system.dispatcher) // trigger unbinding from the port

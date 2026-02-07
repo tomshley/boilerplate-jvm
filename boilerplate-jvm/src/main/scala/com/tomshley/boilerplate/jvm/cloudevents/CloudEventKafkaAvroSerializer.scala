@@ -1,6 +1,6 @@
 package com.tomshley.boilerplate.jvm.cloudevents
 
-import com.sksamuel.avro4s.RecordFormat
+import com.sksamuel.avro4s.{AvroSchema, RecordFormat, ToRecord, FromRecord}
 import com.tomshley.boilerplate.jvm.marshalling.KafkaAvroMarshaller
 import org.apache.kafka.common.serialization.Serializer
 
@@ -34,16 +34,18 @@ content-type: application/avro
  */
 
 object CloudEventKafkaAvroSerializer extends KafkaAvroMarshaller {
-//  def init(registryURL: String): Serializer[CloudEvent] = {
-//
-//    val serdeProps = new Properties()
-//    serdeProps.put("schema.registry.url", registryURL)
-//
-//    implicit lazy val format: RecordFormat[CloudEvent] =
-//      RecordFormat[CloudEvent]
-//    val valueSerializer: Serializer[CloudEvent] = forType[CloudEvent]
-//    valueSerializer.configure(serdeProps.asScala.toMap.asJava, false)
-//
-//    valueSerializer
-//  }
+  def init(registryURL: String): Serializer[CloudEvent] = {
+
+    val serdeProps = new Properties()
+    serdeProps.put("schema.registry.url", registryURL)
+
+    val schema = AvroSchema[CloudEvent]
+    val toRec: ToRecord[CloudEvent] = ToRecord[CloudEvent](schema)
+    val fromRec: FromRecord[CloudEvent] = FromRecord[CloudEvent](schema)
+
+    implicit lazy val format: RecordFormat[CloudEvent] = RecordFormat[CloudEvent](schema)(using toRec, fromRec)
+    val valueSerializer: Serializer[CloudEvent] = forType[CloudEvent]
+    valueSerializer.configure(serdeProps.asScala.toMap.asJava, false)
+    valueSerializer
+  }
 }
