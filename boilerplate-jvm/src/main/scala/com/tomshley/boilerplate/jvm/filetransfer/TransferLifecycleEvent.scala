@@ -6,6 +6,7 @@
 package com.tomshley.boilerplate.jvm.filetransfer
 
 import java.time.Instant
+import com.tomshley.boilerplate.jvm.reqreply.CborSerializable
 
 /**
  * Common lifecycle events for chunked transfer entities.
@@ -17,7 +18,7 @@ import java.time.Instant
  * 
  * Extend these in your domain-specific event hierarchy.
  */
-sealed trait TransferLifecycleEvent
+sealed trait TransferLifecycleEvent extends CborSerializable
 
 object TransferLifecycleEvent {
   

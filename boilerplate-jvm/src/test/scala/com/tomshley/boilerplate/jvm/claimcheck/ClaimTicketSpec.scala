@@ -5,9 +5,9 @@ import org.scalatest.wordspec.AnyWordSpec
 
 final class ClaimTicketSpec extends AnyWordSpec with Matchers {
 
-  "SimpleClaimTicket" should {
+  "ClaimTicket" should {
     "store all fields" in {
-      val ticket = SimpleClaimTicket(
+      val ticket = ClaimTicket(
         number = "n",
         location = "loc",
         storeType = "type",
@@ -21,9 +21,7 @@ final class ClaimTicketSpec extends AnyWordSpec with Matchers {
       ticket.storeType shouldBe "type"
       ticket.sizeBytes shouldBe Some(123L)
     }
-  }
 
-  "ClaimTicket" should {
     "apply creates a simple ticket" in {
       val ticket = ClaimTicket("n", "loc", "type")
       ticket.number shouldBe "n"
