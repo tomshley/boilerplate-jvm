@@ -92,7 +92,7 @@ object Idempotent {
 
     def toSummary: Summary = {
       Summary(
-        idempotencyKey.get,
+        idempotencyKey.getOrElse(""),
         isIdempotent,
         repliedOn,
         replyHeaders,
@@ -163,12 +163,12 @@ object Idempotent {
     Behaviors.receive { (context, message) =>
       message match {
         case SingleRequest(headers, body, replyTo) =>
-          if (state.isIdempotentReply) {
+          if (state.replyCount > 0) {
             replyTo ! StatusReply.error(
               s"This idempotent request already has a reply"
             )
             Behaviors.same
-          } else if (state.isIdempotentRequest && !state.isIdempotentReply) {
+          } else if (state.requestCount > 0) {
             idempotencyResult(idempotentKey, state.existingRequest(), replyTo)
           } else {
             idempotencyResult(
@@ -178,10 +178,10 @@ object Idempotent {
             )
           }
         case SingleReply(headers, body, replyTo) =>
-          if (state.isIdempotentReply && !state.isIdempotentRequest) {
+          if (state.requestCount == 0) {
             replyTo ! StatusReply.error(s"Invalid idempotent state")
             Behaviors.same
-          } else if (state.isIdempotentReply && state.isIdempotentRequest) {
+          } else if (state.replyCount > 0) {
             idempotencyResult(idempotentKey, state.existingReply(), replyTo)
           } else {
             idempotencyResult(
