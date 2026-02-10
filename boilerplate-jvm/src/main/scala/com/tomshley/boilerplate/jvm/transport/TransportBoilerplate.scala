@@ -8,7 +8,7 @@ trait TransportBoilerplate[TBinding, TRouter] {
   def start(
              interface: String,
              port: Int,
-             system: ActorSystem[_],
+             system: ActorSystem[?],
              router: TRouter
            ): Future[TBinding]
 }
