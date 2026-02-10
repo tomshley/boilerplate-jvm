@@ -14,6 +14,7 @@ lazy val `boilerplate-jvm` = (Project("boilerplate-jvm", file("boilerplate-jvm")
   .enablePlugins(
     LibProjectPekkoFullPlugin,
     VersionFilePlugin,
+    TomshleyCIBuildVersionPlugin,
     PublishGitLabPlugin,
     GitLabSourceDependencyPlugin
   )
