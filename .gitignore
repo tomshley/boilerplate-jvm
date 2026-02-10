@@ -5,6 +5,7 @@
 *.iml
 .metals/
 .vscode/
+.windsurf
 
 # Logs
 *.log
