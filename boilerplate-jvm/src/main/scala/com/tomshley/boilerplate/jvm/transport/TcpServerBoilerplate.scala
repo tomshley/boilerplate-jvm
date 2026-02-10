@@ -24,11 +24,10 @@ import org.apache.pekko.actor
 import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.adapter.*
-import org.apache.pekko.stream.scaladsl.{Flow, Tcp}
+import org.apache.pekko.stream.scaladsl.{Flow, Sink, Tcp}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.util.ByteString
 
-import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Success, Failure}
 
@@ -47,16 +46,21 @@ object TcpServerBoilerplate
     given ec: ExecutionContext = system.executionContext
     given mat: Materializer = Materializer(classicSystem)
 
-    val flow: Flow[ByteString, ByteString, _] =
-      Flow[ByteString]
-        .via(handler.framing)
-        .map(_.compact)
-        .mapAsync(4)(msg => handler.onMessage(msg))
-        .map(handler.outboundFraming)
-
     val bound: Future[Tcp.ServerBinding] =
       Tcp()
-        .bindAndHandle(flow, interface, port)
+        .bind(interface, port)
+        .to(Sink.foreach { connection =>
+          val flow = Flow[ByteString]
+            .via(handler.framing)
+            .map(_.compact)
+            .scanAsync((handler.initialState, ByteString.empty)) { case ((state, _), msg) =>
+              handler.onMessage(msg, state)
+            }
+            .drop(1)
+            .map { case (_, response) => handler.outboundFraming(response) }
+          connection.handleWith(flow)
+        })
+        .run()
 
     bound.foreach { binding =>
       CoordinatedShutdown(classicSystem).addTask(
