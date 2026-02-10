@@ -55,6 +55,7 @@ lazy val boilerplateProject = publishableProject(boilerplateProjectName)
       "org.apache.pekko" %% "pekko-projection-core" % PekkoManagementVersion,
       "org.apache.pekko" %% "pekko-projection-r2dbc" % PekkoManagementVersion,
       "org.apache.pekko" %% "pekko-projection-eventsourced" % PekkoManagementVersion,
+      "org.apache.pekko" %% "pekko-projection-durable-state" % PekkoManagementVersion,
       "org.apache.pekko" %% "pekko-persistence-query" % PekkoVersion,
       // Pekko Kafka
       "com.sksamuel.avro4s" %% "avro4s-core" % "5.0.13",

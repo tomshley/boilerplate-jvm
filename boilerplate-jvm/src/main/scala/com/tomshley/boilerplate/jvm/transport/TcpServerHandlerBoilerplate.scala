@@ -6,8 +6,24 @@ import org.apache.pekko.util.ByteString
 
 import scala.concurrent.Future
 
+/** Base handler contract for TCP server connections.
+ *
+ * A single handler instance is shared across all connections;
+ * per-connection state is threaded via [[State]] and `scanAsync`.
+ * Implementations must be stateless — all mutable per-connection
+ * data must live in [[State]].
+ *
+ * [[framing]] must remain a `def` (not `val` or `lazy val`)
+ * because framing stages like `Framing.lengthField` are stateful.
+ * Each connection needs a fresh stage instance.
+ */
 trait TcpServerHandlerBoilerplate:
-  
+
+  type State <: TcpConnectionState
+
+  /** Initial per-connection state. */
+  def initialState: State
+
   /** 
    * Framing stage to delimit incoming byte stream into messages.
    * Override to provide custom framing (e.g., length-field for binary protocols).
@@ -24,5 +40,9 @@ trait TcpServerHandlerBoilerplate:
   def outboundFraming(response: ByteString): ByteString = 
     response ++ ByteString("\n")
 
-  /** Handle one inbound message and return a response. */
-  def onMessage(msg: ByteString)(using ActorSystem[?]): Future[ByteString]
+  /** Handle one inbound message with current state, returning updated state and response.
+   *
+   * Returning a failed Future will terminate the connection.
+   * Encode application-level errors in the response ByteString instead.
+   */
+  def onMessage(msg: ByteString, state: State)(using ActorSystem[?]): Future[(State, ByteString)]
