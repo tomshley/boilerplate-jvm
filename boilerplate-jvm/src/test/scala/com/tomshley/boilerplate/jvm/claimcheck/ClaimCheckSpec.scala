@@ -12,8 +12,7 @@ final class ClaimCheckSpec extends AnyWordSpec with Matchers with ScalaFutures {
 
   "ClaimCheck" should {
     "check returns a ticket with correct fields" in {
-      val enricher = new InMemoryContentEnricher()
-      val claimCheck = ClaimCheck(enricher, location = "bucket-a")
+      val claimCheck = new InMemoryClaimCheck("bucket-a")
 
       val ticket = claimCheck.check("hello".getBytes("UTF-8"), tag = "tag-1").futureValue
       ticket.number shouldBe "tag-1"
@@ -23,8 +22,7 @@ final class ClaimCheckSpec extends AnyWordSpec with Matchers with ScalaFutures {
     }
 
     "claim retrieves original data" in {
-      val enricher = new InMemoryContentEnricher()
-      val claimCheck = ClaimCheck(enricher, location = "bucket-a")
+      val claimCheck = new InMemoryClaimCheck("bucket-a")
 
       val payload = "hello".getBytes("UTF-8")
       val ticket = claimCheck.check(payload, tag = "tag-1").futureValue
@@ -35,16 +33,14 @@ final class ClaimCheckSpec extends AnyWordSpec with Matchers with ScalaFutures {
     }
 
     "claim returns None for unknown ticket" in {
-      val enricher = new InMemoryContentEnricher()
-      val claimCheck = ClaimCheck(enricher, location = "bucket-a")
+      val claimCheck = new InMemoryClaimCheck("bucket-a")
 
-      val ticket: ClaimTicket = ClaimTicket(number = "missing", location = "bucket-a", storeType = enricher.storeType)
+      val ticket: ClaimTicket = ClaimTicket(number = "missing", location = "bucket-a", storeType = "in-memory")
       claimCheck.claim(ticket).futureValue shouldBe None
     }
 
     "discard removes data" in {
-      val enricher = new InMemoryContentEnricher()
-      val claimCheck = ClaimCheck(enricher, location = "bucket-a")
+      val claimCheck = new InMemoryClaimCheck("bucket-a")
 
       val payload = "hello".getBytes("UTF-8")
       val ticket = claimCheck.check(payload, tag = "tag-1").futureValue
@@ -54,8 +50,7 @@ final class ClaimCheckSpec extends AnyWordSpec with Matchers with ScalaFutures {
     }
 
     "exists returns true for checked data and false after discard" in {
-      val enricher = new InMemoryContentEnricher()
-      val claimCheck = ClaimCheck(enricher, location = "bucket-a")
+      val claimCheck = new InMemoryClaimCheck("bucket-a")
 
       val payload = "hello".getBytes("UTF-8")
       val ticket = claimCheck.check(payload, tag = "tag-1").futureValue
