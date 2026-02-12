@@ -6,6 +6,26 @@ This project follows Semantic Versioning.
 
 ---
 
+## [1.5.0] — 2026-02-11
+
+### Added
+- **SingleShotBlobWriter** — new `objectstorage` trait + `DefaultSingleShotBlobWriter` for single-call blob writes via `BlobStoreBoilerplate`
+- **InMemoryClaimCheck** — lightweight in-memory `ClaimCheck` test helper replacing `InMemoryContentEnricher`
+
+### Removed
+- **ClaimCheck default implementation** — `DefaultClaimCheck`, `ClaimCheck.apply` factory, and `ContentEnricher` trait removed; `ClaimCheck` is now a pure trait for downstream implementation
+- **ClaimCheckBoilerplate** — removed persistence-backed claim-check orchestration
+- **ClaimCheckState** — removed durable state model for claim-check
+- **ClaimCheckLifecycleEvent** — removed lifecycle event hierarchy
+- **ClaimCheckStorageAdapter** — removed multipart-upload storage adapter bridge
+- **filetransfer package** — `ChunkedTransferBoilerplate`, `ChunkedTransferState`, `TransferLifecycleEvent` and all associated tests removed
+
+### Changed
+- `ClaimCheck` trait no longer imports `ExecutionContext` (pure interface, no default impl)
+- `ClaimCheckSpec` updated to use `InMemoryClaimCheck` directly
+
+---
+
 ## [1.3.0] — 2026-02-09
 
 ### Added
