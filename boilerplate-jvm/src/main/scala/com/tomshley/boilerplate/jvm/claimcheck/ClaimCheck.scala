@@ -5,7 +5,7 @@
 
 package com.tomshley.boilerplate.jvm.claimcheck
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
 
 /**
  * Claim-Check Pattern (EIP)
@@ -62,34 +62,3 @@ trait ClaimCheck {
   def exists(ticket: ClaimTicket): Future[Boolean]
 }
 
-/**
- * ClaimCheck implementation backed by a ContentEnricher.
- */
-class DefaultClaimCheck(
-    contentEnricher: ContentEnricher,
-    defaultLocation: String
-)(using ec: ExecutionContext) extends ClaimCheck {
-
-  override def check(data: Array[Byte], tag: String): Future[ClaimTicket] =
-    contentEnricher.store(tag, data, defaultLocation)
-
-  override def claim(ticket: ClaimTicket): Future[Option[Array[Byte]]] =
-    contentEnricher.retrieve(ticket)
-
-  override def discard(ticket: ClaimTicket): Future[Boolean] =
-    contentEnricher.delete(ticket)
-
-  override def exists(ticket: ClaimTicket): Future[Boolean] =
-    contentEnricher.exists(ticket)
-}
-
-object ClaimCheck {
-  /**
-   * Create a ClaimCheck with the given ContentEnricher.
-   */
-  def apply(
-      contentEnricher: ContentEnricher,
-      location: String
-  )(using ec: ExecutionContext): ClaimCheck =
-    new DefaultClaimCheck(contentEnricher, location)
-}
