@@ -48,10 +48,10 @@ object WebServerBoilerplate extends TransportBoilerplate[Http.ServerBinding, Seq
 
     Http()
       .newServerAt(interface, port)
-      .bind(concat(Seq(get {
+      .bind(concat((Seq(get {
         path("heartbeat") {
           complete(Instant.now().toString)
         }
-      }) ++ routes _*))
+      }) ++ routes)*))
   }
 }

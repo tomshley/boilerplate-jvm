@@ -36,7 +36,7 @@ import scala.jdk.FutureConverters.*
 class S3BlobStoreBoilerplate(
     config: S3BlobStoreConfig,
     onClose: Option[() => Future[Done]] = None
-)(using mat: Materializer, ec: ExecutionContext, system: ActorSystem[_])
+)(using mat: Materializer, ec: ExecutionContext, system: ActorSystem[?])
     extends BlobStoreBoilerplate {
 
   private val s3Client: S3AsyncClient = {
@@ -263,7 +263,7 @@ object S3BlobStoreBoilerplate {
   def apply(
       config: S3BlobStoreConfig,
       onClose: Option[() => Future[Done]] = None
-  )(using mat: Materializer, ec: ExecutionContext, system: ActorSystem[_]): BlobStoreBoilerplate = {
+  )(using mat: Materializer, ec: ExecutionContext, system: ActorSystem[?]): BlobStoreBoilerplate = {
     new S3BlobStoreBoilerplate(config, onClose)
   }
 }
