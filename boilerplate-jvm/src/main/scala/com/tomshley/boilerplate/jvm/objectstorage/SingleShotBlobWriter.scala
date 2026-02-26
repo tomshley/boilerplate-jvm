@@ -30,10 +30,17 @@ class DefaultSingleShotBlobWriter(store: BlobStoreBoilerplate)(using ec: Executi
       bucket: String,
       key: String,
       data: Array[Byte]
-  ): Future[BlobReference] =
-    for {
-      session  <- store.initiateUpload(bucket, key)
-      partETag <- store.uploadPart(session, 1, Source.single(ByteString(data)))
-      blobRef  <- store.completeUpload(session, Seq(partETag))
-    } yield blobRef
+  ): Future[BlobReference] = {
+    store.initiateUpload(bucket, key).flatMap { session =>
+      val uploadAndComplete = for {
+        partETag <- store.uploadPart(session, 1, Source.single(ByteString(data)))
+        blobRef  <- store.completeUpload(session, Seq(partETag))
+      } yield blobRef
+      
+      // Abort multipart upload on failure to prevent storage cost accumulation
+      uploadAndComplete.recoverWith { case ex =>
+        store.abortUpload(session).transformWith(_ => Future.failed(ex))
+      }
+    }
+  }
 }

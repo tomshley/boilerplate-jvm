@@ -49,7 +49,7 @@ class InMemoryBlobStoreBoilerplate(using mat: Materializer, ec: ExecutionContext
       uploads.get(session.uploadId) match {
         case Some(partMap) =>
           val etag = md5(bytes)
-          val partETag = PartETag(partNo, etag, bytes.length)
+          val partETag = PartETag(partNo, etag, bytes.size.toLong)
           partMap.put(partNo, (bytes, partETag))
           Future.successful(partETag)
         case None =>
@@ -74,8 +74,8 @@ class InMemoryBlobStoreBoilerplate(using mat: Materializer, ec: ExecutionContext
           val fullData = sortedParts.flatMap(p => partMap.get(p.partNo).map(_._1)).fold(ByteString.empty)(_ ++ _)
           val checksum = md5(fullData)
           val etag = s"${checksum}-${parts.size}"
-          val ref = BlobReference(session.bucket, session.key, etag, checksum, fullData.length)
-          val metadata = ObjectMetadata(Some("application/octet-stream"), fullData.length)
+          val ref = BlobReference(session.bucket, session.key, etag, checksum, fullData.size.toLong)
+          val metadata = ObjectMetadata(Some("application/octet-stream"), fullData.size.toLong)
           objects.put(objectKey(session.bucket, session.key), (fullData, metadata))
           uploads.remove(session.uploadId)
           sessions.remove(session.uploadId)
@@ -116,6 +116,10 @@ class InMemoryBlobStoreBoilerplate(using mat: Materializer, ec: ExecutionContext
 
   override def objectExists(bucket: String, key: String): Future[Boolean] = {
     Future.successful(objects.contains(objectKey(bucket, key)))
+  }
+
+  override def close(): Future[Done] = {
+    Future.successful(Done)
   }
 
   private def md5(data: ByteString): String = {
