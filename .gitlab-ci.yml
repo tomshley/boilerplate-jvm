@@ -7,7 +7,7 @@
 # ---------------------------------------------------------------------------
 include:
   - project: 'tomshley/brands/global/tware/tech/products/provisioning/cicd-pipelines'
-    ref: '0.4.20'
+    ref: 'v0.4.20'
     file:
       - '/gitlab/ci/.stages-base.yml'
       - '/gitlab/ci/.gitflow-base.yml'
