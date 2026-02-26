@@ -52,6 +52,6 @@ object WebServerBoilerplate extends TransportBoilerplate[Http.ServerBinding, Seq
         path("heartbeat") {
           complete(Instant.now().toString)
         }
-      }) ++ routes *))
+      }) ++ routes _*))
   }
 }
