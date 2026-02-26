@@ -1,0 +1,53 @@
+# Copyright (c) 2024–2026 Tomshley
+#
+# Licensed under the Apache License, Version 2.0
+
+# ---------------------------------------------------------------------------
+# Shared CI/CD templates from cicd-pipelines
+# ---------------------------------------------------------------------------
+include:
+  - project: 'tomshley/brands/global/tware/tech/products/provisioning/cicd-pipelines'
+    ref: 'v0.4.20'
+    file:
+      - '/gitlab/ci/.stages-base.yml'
+      - '/gitlab/ci/.gitflow-base.yml'
+      - '/gitlab/ci/.gitflow-branch-policy.yml'
+      - '/gitlab/ci/.gitflow-jobs.yml'
+      - '/gitlab/ci/.sbt-runtime.yml'
+      - '/gitlab/ci/.artifact-tags.yml'
+      - '/gitlab/ci/.sbt-artifact-tags.yml'
+      - '/gitlab/ci/.artifact-publish-policy.yml'
+      - '/gitlab/ci/.security-scanning.yml'
+
+variables:
+  CICD_PIPELINES_RUNNER_TAG: "0.4.20"
+
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
+build-sbt:
+  extends:
+    - .tomshley-sbt-runtime
+  stage: build
+  script:
+    - sbt compile
+
+# ---------------------------------------------------------------------------
+# Test
+# ---------------------------------------------------------------------------
+test-sbt:
+  extends:
+    - .tomshley-sbt-runtime
+  stage: test
+  needs: ["build-sbt"]
+  script:
+    - sbt test
+
+# ---------------------------------------------------------------------------
+# Maven Publish
+# ---------------------------------------------------------------------------
+publish-maven:
+  extends:
+    - .tomshley-sbt-runtime
+    - .sbt-publish
+    - .flow-artifact-publish

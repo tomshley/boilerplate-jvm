@@ -54,4 +54,7 @@ trait BlobStoreBoilerplate {
   
   /** Check if object exists */
   def objectExists(bucket: String, key: String): Future[Boolean]
+  
+  /** Release underlying resources (connection pools, threads, etc.) */
+  def close(): Future[Done]
 }

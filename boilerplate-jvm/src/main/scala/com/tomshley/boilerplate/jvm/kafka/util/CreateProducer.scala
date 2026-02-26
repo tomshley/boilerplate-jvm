@@ -1,14 +1,12 @@
 package com.tomshley.boilerplate.jvm.kafka.util
 
-import org.apache.kafka.common.serialization.{ByteArraySerializer, StringSerializer}
-import org.apache.pekko.Done
+import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.kafka.ProducerSettings
 import org.apache.pekko.kafka.scaladsl.SendProducer
-import org.apache.pekko.actor.CoordinatedShutdown
 
 import scala.annotation.tailrec
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.Promise
 
 protected[util] trait CreateProducer[K, V] {
   private val producerInstance: Promise[SendProducer[K, V]] = Promise()
@@ -31,7 +29,7 @@ protected[util] trait CreateProducer[K, V] {
   private def createProducer(system: ActorSystem[?]): SendProducer[K, V] = {
     given ps: ProducerSettings[K, V] = producerSettings(system)
     val sendProducer = SendProducer(ps)(system)
-    CoordinatedShutdown(system).addTask(CoordinatedShutdown.PhaseBeforeActorSystemTerminate, "close-sendProducer") { () => sendProducer.close() }
+    CoordinatedShutdown(system).addTask(CoordinatedShutdown.PhaseBeforeActorSystemTerminate, s"close-sendProducer-${getClass.getSimpleName}-${System.identityHashCode(this)}") { () => sendProducer.close() }
     sendProducer
   }
 }

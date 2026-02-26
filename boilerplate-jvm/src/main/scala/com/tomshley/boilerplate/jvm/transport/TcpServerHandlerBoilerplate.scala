@@ -29,7 +29,7 @@ trait TcpServerHandlerBoilerplate:
    * Override to provide custom framing (e.g., length-field for binary protocols).
    * Default: newline-delimited text frames.
    */
-  def framing: Flow[ByteString, ByteString, _] =
+  def framing: Flow[ByteString, ByteString, ?] =
     Framing.delimiter(ByteString("\n"), maximumFrameLength = 65536)
 
   /**

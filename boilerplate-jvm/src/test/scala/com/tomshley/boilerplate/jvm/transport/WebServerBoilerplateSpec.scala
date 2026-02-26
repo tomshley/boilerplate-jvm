@@ -7,11 +7,15 @@ import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.http.scaladsl.model.Uri
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.should.Matchers
+import org.scalatest.time.{Milliseconds, Seconds, Span}
 import org.scalatest.wordspec.AnyWordSpec
 
 import scala.concurrent.ExecutionContext
 
 final class WebServerBoilerplateSpec extends AnyWordSpec with Matchers with ScalaFutures {
+
+  override implicit val patienceConfig: PatienceConfig =
+    PatienceConfig(timeout = Span(3, Seconds), interval = Span(25, Milliseconds))
 
   "WebServerBoilerplate" should {
     "bind and serve /heartbeat" in {
