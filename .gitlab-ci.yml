@@ -14,6 +14,7 @@ include:
       - '/gitlab/ci/.gitflow-branch-policy.yml'
       - '/gitlab/ci/.gitflow-jobs.yml'
       - '/gitlab/ci/.sbt-runtime.yml'
+      - '/gitlab/ci/.artifact-tags.yml'
       - '/gitlab/ci/.sbt-artifact-tags.yml'
       - '/gitlab/ci/.artifact-publish-policy.yml'
       - '/gitlab/ci/.security-scanning.yml'
