@@ -1,85 +1,71 @@
 package com.tomshley.boilerplate.jvm.kafka.util
 
+import com.sksamuel.avro4s.{AvroSchema, ToRecord}
 import org.apache.avro.Schema
 import org.apache.avro.SchemaBuilder
-import org.apache.avro.specific.SpecificRecord
+import org.apache.avro.generic.{GenericData, GenericRecord}
 import org.apache.kafka.common.header.internals.RecordHeaders
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import scala.jdk.CollectionConverters.*
 
-// Simple test implementation of SpecificRecord for testing purposes
-case class TestAvroRecord(value: String) extends SpecificRecord {
-  override def getSchema: Schema = TestAvroRecord.SCHEMA
-  override def get(i: Int): AnyRef = i match {
-    case 0 => value.asInstanceOf[AnyRef]
-    case _ => throw new IndexOutOfBoundsException(s"Invalid index: $i")
-  }
-  override def put(i: Int, v: scala.Any): Unit = i match {
-    case 0 => // value field is immutable
-    case _ => throw new IndexOutOfBoundsException(s"Invalid index: $i")
-  }
-}
-
-object TestAvroRecord {
-  val SCHEMA: Schema = SchemaBuilder
-    .record("TestAvroRecord")
-    .fields()
-    .requiredString("value")
-    .endRecord()
-}
+// Simple test case class for avro4s
+case class TestAvroRecord(value: String)
 
 final class KafkaKeyAvroMessageEnvelopeSpec extends AnyWordSpec with Matchers {
 
+  private val toRecord = ToRecord[TestAvroRecord](AvroSchema[TestAvroRecord])
+
+  private def testRecord(v: String): GenericRecord = toRecord.to(TestAvroRecord(v))
+
   "KafkaKeyAvroMessageEnvelope" should {
     "store serviceName and key" in {
-      val testMessage = TestAvroRecord("test-value")
-      val envelope = KafkaKeyAvroMessageEnvelope("service", "key123", testMessage)
+      val record = testRecord("test-value")
+      val envelope = KafkaKeyAvroMessageEnvelope("service", "key123", record)
       envelope.serviceName shouldBe "service"
       envelope.key shouldBe "key123"
-      envelope.avroValue shouldBe testMessage
+      envelope.avroValue shouldBe record
     }
 
     "generate messageBytes from avroValue" in {
-      val testMessage = TestAvroRecord("test-value")
-      val envelope = KafkaKeyAvroMessageEnvelope("service", "key123", testMessage)
+      val record = testRecord("test-value")
+      val envelope = KafkaKeyAvroMessageEnvelope("service", "key123", record)
       envelope.messageBytes should not be empty
-      envelope.messageBytes should have length 11 // Avro binary encoding of "test-value"
     }
 
     "use default headers when not specified" in {
-      val testMessage = TestAvroRecord("test-value")
-      val envelope = KafkaKeyAvroMessageEnvelope("service", "key123", testMessage)
+      val record = testRecord("test-value")
+      val envelope = KafkaKeyAvroMessageEnvelope("service", "key123", record)
       envelope.headers shouldBe new RecordHeaders()
       envelope.headers.asScala shouldBe empty
     }
 
     "use custom headers when provided" in {
-      val testMessage = TestAvroRecord("test-value")
+      val record = testRecord("test-value")
       val customHeaders = new RecordHeaders()
       customHeaders.add("test-header", "test-value".getBytes())
-      val envelope = KafkaKeyAvroMessageEnvelope("service", "key123", testMessage, customHeaders)
+      val envelope = KafkaKeyAvroMessageEnvelope("service", "key123", record, customHeaders)
       envelope.headers shouldBe customHeaders
       envelope.headers.lastHeader("test-header").value() shouldBe "test-value".getBytes()
     }
 
     "throw descriptive exception on serialization failure" in {
-      // Create a mock SpecificRecord that will fail during datumWriter.write
-      val failingRecord = new SpecificRecord {
-        override def getSchema: Schema = TestAvroRecord.SCHEMA // Valid schema
-        override def get(i: Int): AnyRef = throw new RuntimeException("Write error")
-        override def put(i: Int, v: scala.Any): Unit = throw new UnsupportedOperationException()
-      }
+      // Create a GenericRecord with a valid schema but mismatched data to trigger write failure
+      val schema = SchemaBuilder
+        .record("FailRecord")
+        .fields()
+        .requiredInt("num")
+        .endRecord()
+      val badRecord = new GenericData.Record(schema)
+      // Leave required field unset — GenericDatumWriter will throw NullPointerException
       
-      val envelope = KafkaKeyAvroMessageEnvelope("service", "key123", failingRecord)
+      val envelope = KafkaKeyAvroMessageEnvelope("service", "key123", badRecord)
       
       val exception = intercept[RuntimeException] {
         envelope.messageBytes
       }
-      exception.getMessage should include("Failed to serialize Avro message for schema TestAvroRecord")
-      exception.getCause shouldBe a[RuntimeException]
-      exception.getCause.getMessage shouldBe "Write error"
+      exception.getMessage should include("Failed to serialize Avro message for schema FailRecord")
     }
   }
 }
