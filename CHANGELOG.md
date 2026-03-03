@@ -6,6 +6,20 @@ This project follows Semantic Versioning.
 
 ---
 
+## [Unreleased]
+
+### Added
+- **MintedPimpedBytes** — immutable pimped byte array type with content-based equality, cached hashCode, and transparent Jackson CBOR serialization (`basics` package)
+- **Array[Byte].toMintedPimpedBytes** extension — pimp-my-library conversion to MintedPimpedBytes
+
+---
+
+## [1.5.1] — 2026-02-26
+
+- Initial OSS standardization (LICENSE, NOTICE, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, CHANGELOG, ROADMAP)
+
+---
+
 ## [1.5.0] — 2026-02-11
 
 ### Added
@@ -47,9 +61,3 @@ This project follows Semantic Versioning.
 - `crc32` field on `ItemReceived` event
 - `withPendingKey`/`withClaim` abstract helpers on `ClaimCheckState`
 - ClaimCheckStateSpec, ClaimCheckBoilerplateSpec test suites
-
----
-
-## Unreleased
-
-- Initial OSS standardization (LICENSE, NOTICE, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, CHANGELOG, ROADMAP)
