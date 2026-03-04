@@ -1,5 +1,8 @@
 package com.tomshley.boilerplate.jvm.kafka.util
 
+import com.sksamuel.avro4s.{Encoder, SchemaFor}
+import com.tomshley.boilerplate.jvm.marshalling.AvroMarshaller
+import com.tomshley.boilerplate.jvm.marshalling.models.MarshallModel
 import org.apache.avro.generic.{GenericDatumWriter, GenericRecord}
 import org.apache.kafka.common.header.internals.RecordHeaders
 import org.apache.pekko.persistence.query.typed.EventEnvelope as PersistenceQueryEventEnvelope
@@ -46,4 +49,7 @@ object KafkaKeyAvroMessageEnvelope {
     PersistenceId.extractEntityId(persistenceQueryEnvelope.persistenceId),
     avroValue
   )
+  def apply[T <: MarshallModel[T]](serviceName: String, key: String, model: T)
+      (using Encoder[T], SchemaFor[T]): KafkaKeyAvroMessageEnvelope =
+    new KafkaKeyAvroMessageEnvelope(serviceName, key, AvroMarshaller.toRecord(model))
 }
