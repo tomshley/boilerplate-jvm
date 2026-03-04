@@ -9,9 +9,10 @@ import org.apache.pekko.kafka.ProducerSettings
 import scala.jdk.CollectionConverters.*
 
 object ProducerAvroBoilerplate extends CreateProducer[String, GenericRecord] {
-  override def producerSettings(system: ActorSystem[?]): ProducerSettings[String, GenericRecord] = {
-    val schemaRegistryUrl = system.settings.config.getString("schema-registry.url")
+  override def producerSettings(system: ActorSystem[?]): ProducerSettings[String, GenericRecord] =
+    producerSettings(system, system.settings.config.getString("schema-registry.url"))
 
+  def producerSettings(system: ActorSystem[?], schemaRegistryUrl: String): ProducerSettings[String, GenericRecord] = {
     val kafkaAvroSerDeConfig = Map[String, Any](
       AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG -> schemaRegistryUrl)
 
