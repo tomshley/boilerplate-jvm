@@ -8,9 +8,21 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+---
+
+## [1.6.0] — 2026-03-04
+
 ### Added
+- **AvroMarshaller** — trait/object for Avro serialization of `MarshallModel[T]` instances via avro4s, with sync and async methods mirroring `JsonMarshaller`
+- **Opt-in Avro serializers** — `given SchemaFor/Encoder/Decoder` for `DateTime`, `ZonedDateTime`, `File`, `Path` (all as Avro STRING) in `serializers.avro` package
+- **KafkaKeyAvroMessageEnvelope model overload** — new `apply[T <: MarshallModel[T]]` accepting domain models directly (auto-converts to `GenericRecord`)
+- **AvroMarshallerSpec** — round-trip, schema, async, enum, and envelope tests
+- **AvroSerializersSpec** — round-trip and schema-type tests for all 4 custom Avro serializers
 - **MintedPimpedBytes** — immutable pimped byte array type with content-based equality, cached hashCode, and transparent Jackson CBOR serialization (`basics` package)
 - **Array[Byte].toMintedPimpedBytes** extension — pimp-my-library conversion to MintedPimpedBytes
+
+### Changed
+- `AvroMarshaller` uses `MarshallModel[T]` (not a separate `AvroMarshallModel`) — one marker trait for all marshalling formats
 
 ---
 
