@@ -1,118 +1,117 @@
 package com.tomshley.boilerplate.jvm.kafka.util
 
-import org.apache.kafka.clients.admin.{Admin, CreateTopicsResult, NewTopic}
+import org.apache.kafka.clients.admin.{Admin, CreateTopicsResult}
 import org.apache.kafka.common.KafkaFuture
 import org.apache.kafka.common.errors.TopicExistsException
 import org.apache.kafka.common.internals.KafkaFutureImpl
+import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import java.util.concurrent.{TimeUnit, TimeoutException}
 import java.lang.reflect.{InvocationHandler, Method, Proxy}
 import java.util.Collections
-import scala.jdk.CollectionConverters.*
+import java.util.concurrent.ExecutionException
+import scala.concurrent.ExecutionContext
 
-final class TopicCreationSpec extends AnyWordSpec with Matchers {
+final class TopicCreationSpec extends AnyWordSpec with Matchers with ScalaFutures {
 
-  private final case class ExitCalled(code: Int) extends RuntimeException
+  given ExecutionContext = ExecutionContext.global
+
+  private def adminStubWith(createTopicsResult: CreateTopicsResult): Admin = {
+    val handler: InvocationHandler = new InvocationHandler {
+      override def invoke(proxy: Object, method: Method, args: Array[Object] | Null): Object = {
+        method.getName match {
+          case "createTopics" => createTopicsResult
+          case "close"        => java.lang.Boolean.TRUE
+          case "toString"     => "AdminStub"
+          case _              => throw new UnsupportedOperationException(method.getName)
+        }
+      }
+    }
+    Proxy
+      .newProxyInstance(
+        classOf[Admin].getClassLoader,
+        Array(classOf[Admin]),
+        handler
+      )
+      .asInstanceOf[Admin]
+  }
+
+  private def resultWith(allFuture: KafkaFuture[Void]): CreateTopicsResult = {
+    val emptyValues =
+      Collections.emptyMap[String, KafkaFuture[CreateTopicsResult.TopicMetadataAndConfig]]()
+    new CreateTopicsResult(emptyValues) {
+      override def all(): KafkaFuture[Void] = allFuture
+    }
+  }
 
   "TopicCreation.createTopicsWith" should {
-    "not call exit when topics already exist" in {
+    "succeed when topics are created successfully" in {
+      val allFuture = new KafkaFutureImpl[Void]()
+      allFuture.complete(null)
+
+      val future = TopicCreation.createTopicsWith(
+        clientConfig = Map.empty,
+        topics = Map("t" -> TopicCreation.TopicSettings(1, 1.toShort)),
+        clientFactory = _ => adminStubWith(resultWith(allFuture))
+      )
+
+      future.futureValue shouldBe a[Admin]
+    }
+
+    "succeed when TopicExistsException is wrapped in ExecutionException" in {
+      val allFuture = new KafkaFutureImpl[Void]()
+      allFuture.completeExceptionally(
+        new ExecutionException(new TopicExistsException("exists"))
+      )
+
+      val future = TopicCreation.createTopicsWith(
+        clientConfig = Map.empty,
+        topics = Map("t" -> TopicCreation.TopicSettings(1, 1.toShort)),
+        clientFactory = _ => adminStubWith(resultWith(allFuture))
+      )
+
+      future.futureValue shouldBe a[Admin]
+    }
+
+    "succeed when TopicExistsException is delivered unwrapped" in {
       val allFuture = new KafkaFutureImpl[Void]()
       allFuture.completeExceptionally(
         new TopicExistsException("exists")
       )
 
-      val emptyValues =
-        Collections
-          .emptyMap[String, KafkaFuture[CreateTopicsResult.TopicMetadataAndConfig]]()
+      val future = TopicCreation.createTopicsWith(
+        clientConfig = Map.empty,
+        topics = Map("t" -> TopicCreation.TopicSettings(1, 1.toShort)),
+        clientFactory = _ => adminStubWith(resultWith(allFuture))
+      )
 
-      val createTopicsResultWithAll = new CreateTopicsResult(
-        emptyValues
-      ) {
-        override def all(): KafkaFuture[Void] = allFuture
-      }
-
-      val handler: InvocationHandler = new InvocationHandler {
-        override def invoke(proxy: Object, method: Method, args: Array[Object] | Null): Object = {
-          method.getName match {
-            case "createTopics" =>
-              createTopicsResultWithAll
-            case "close" =>
-              java.lang.Boolean.TRUE
-            case "toString" =>
-              "AdminStub"
-            case _ =>
-              throw new UnsupportedOperationException(method.getName)
-          }
-        }
-      }
-
-      val adminStub: Admin = Proxy
-        .newProxyInstance(
-          classOf[Admin].getClassLoader,
-          Array(classOf[Admin]),
-          handler
-        )
-        .asInstanceOf[Admin]
-
-      noException should be thrownBy {
-        TopicCreation.createTopicsWith(
-          clientConfig = Map.empty,
-          topics = Map("t" -> TopicCreation.TopicSettings(1, 1.toShort)),
-          topicCreationTimeout = Some((1L, TimeUnit.SECONDS)),
-          clientFactory = _ => adminStub,
-          exitFn = code => throw ExitCalled(code)
-        )
-      }
+      future.futureValue shouldBe a[Admin]
     }
 
-    "not NPE when exception getCause is null (e.g. TimeoutException)" in {
-      // TimeoutException has getCause == null, which would NPE without
-      // the Option(ex.getCause) guard in TopicCreation
-      val timeoutFuture: KafkaFuture[Void] = new KafkaFutureImpl[Void]() {
-        override def get(timeout: Long, unit: TimeUnit): Void =
-          throw new TimeoutException("simulated timeout")
-      }
+    "fail the future on non-TopicExistsException errors" in {
+      val allFuture = new KafkaFutureImpl[Void]()
+      allFuture.completeExceptionally(
+        new RuntimeException("broker down")
+      )
 
-      val emptyValues =
-        Collections
-          .emptyMap[String, KafkaFuture[CreateTopicsResult.TopicMetadataAndConfig]]()
+      val future = TopicCreation.createTopicsWith(
+        clientConfig = Map.empty,
+        topics = Map("t" -> TopicCreation.TopicSettings(1, 1.toShort)),
+        clientFactory = _ => adminStubWith(resultWith(allFuture))
+      )
 
-      val createTopicsResultWithAll = new CreateTopicsResult(
-        emptyValues
-      ) {
-        override def all(): KafkaFuture[Void] = timeoutFuture
-      }
+      future.failed.futureValue shouldBe a[RuntimeException]
+    }
 
-      val handler: InvocationHandler = new InvocationHandler {
-        override def invoke(proxy: Object, method: Method, args: Array[Object] | Null): Object = {
-          method.getName match {
-            case "createTopics" => createTopicsResultWithAll
-            case "close"        => java.lang.Boolean.TRUE
-            case "toString"     => "AdminStub"
-            case _              => throw new UnsupportedOperationException(method.getName)
-          }
-        }
-      }
+    "capture synchronous clientFactory exception as failed Future" in {
+      val future = TopicCreation.createTopicsWith(
+        clientConfig = Map.empty,
+        topics = Map("t" -> TopicCreation.TopicSettings(1, 1.toShort)),
+        clientFactory = _ => throw new RuntimeException("bad config")
+      )
 
-      val adminStub: Admin = Proxy
-        .newProxyInstance(
-          classOf[Admin].getClassLoader,
-          Array(classOf[Admin]),
-          handler
-        )
-        .asInstanceOf[Admin]
-
-      an[ExitCalled] should be thrownBy {
-        TopicCreation.createTopicsWith(
-          clientConfig = Map.empty,
-          topics = Map("t" -> TopicCreation.TopicSettings(1, 1.toShort)),
-          topicCreationTimeout = Some((1L, TimeUnit.SECONDS)),
-          clientFactory = _ => adminStub,
-          exitFn = code => throw ExitCalled(code)
-        )
-      }
+      future.failed.futureValue shouldBe a[RuntimeException]
     }
   }
 }

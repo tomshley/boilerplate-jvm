@@ -31,7 +31,9 @@ import org.apache.pekko.http.scaladsl.server.Directives.{
 import org.apache.pekko.http.scaladsl.server.Route
 
 import java.time.Instant
+import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContextExecutor, Future}
+import scala.util.{Failure, Success}
 
 object WebServerBoilerplate extends TransportBoilerplate[Http.ServerBinding, Seq[Route]] {
 
@@ -46,12 +48,29 @@ object WebServerBoilerplate extends TransportBoilerplate[Http.ServerBinding, Seq
     given classicSystem: actor.ActorSystem = system.toClassic
     given ec: ExecutionContextExecutor = system.executionContext
 
-    Http()
+    val bound = Http()
       .newServerAt(interface, port)
       .bind(concat((Seq(get {
         path("heartbeat") {
           complete(Instant.now().toString)
         }
       }) ++ routes)*))
+      .map(_.addToCoordinatedShutdown(3.seconds))
+
+    bound.onComplete {
+      case Success(binding) =>
+        val address = binding.localAddress
+        system.log.info(
+          "HTTP server online at {}:{}",
+          address.getHostString,
+          address.getPort
+        )
+
+      case Failure(ex) =>
+        system.log.error("Failed to bind HTTP server, terminating system", ex)
+        system.terminate()
+    }
+
+    bound
   }
 }
