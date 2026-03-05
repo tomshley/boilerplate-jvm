@@ -10,6 +10,13 @@ This project follows Semantic Versioning.
 
 ---
 
+## [1.7.0] — 2026-03-04
+
+### Changed
+- **Version bump** — Updated to version 1.7.0
+
+---
+
 ## [1.6.0] — 2026-03-04
 
 ### Added
