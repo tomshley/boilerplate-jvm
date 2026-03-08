@@ -16,13 +16,17 @@ package com.tomshley.boilerplate.jvm.objectstorage
  */
 case class S3BlobStoreConfig(
     region: String,
-    accessKeyId: String,
-    secretAccessKey: String,
+    accessKeyId: Option[String] = None,
+    secretAccessKey: Option[String] = None,
     endpoint: Option[String] = None,
     pathStyleAccess: Boolean = false
 ) {
   override def toString: String = {
-    val maskedKeyId = if (accessKeyId.length > 4) s"****${accessKeyId.takeRight(4)}" else "****"
+    val maskedKeyId = accessKeyId match {
+      case Some(keyId) if keyId.length > 4 => s"****${keyId.takeRight(4)}"
+      case Some(_) => "****"
+      case None => "<none>"
+    }
     s"S3BlobStoreConfig(region=$region, accessKeyId=$maskedKeyId, secretAccessKey=<redacted>, endpoint=$endpoint, pathStyleAccess=$pathStyleAccess)"
   }
 }
