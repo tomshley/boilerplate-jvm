@@ -13,6 +13,7 @@ import org.apache.pekko.stream.scaladsl.{Source, Sink}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.util.ByteString
 import scala.util.control.NonFatal
+import org.slf4j.LoggerFactory
 import software.amazon.awssdk.auth.credentials.{AwsBasicCredentials, DefaultCredentialsProvider, StaticCredentialsProvider}
 import software.amazon.awssdk.core.async.{AsyncRequestBody, AsyncResponseTransformer}
 import software.amazon.awssdk.regions.Region
@@ -39,10 +40,15 @@ class S3BlobStoreBoilerplate(
 )(using mat: Materializer, ec: ExecutionContext, system: ActorSystem[?])
     extends BlobStoreBoilerplate {
 
+  private val log = LoggerFactory.getLogger(getClass)
+
   private val s3Client: S3AsyncClient = {
     val credentialsProvider = (config.accessKeyId, config.secretAccessKey) match {
       case (Some(keyId), Some(secret)) if keyId.nonEmpty && secret.nonEmpty =>
         StaticCredentialsProvider.create(AwsBasicCredentials.create(keyId, secret))
+      case (Some(_), None) | (None, Some(_)) =>
+        log.warn("Only one of accessKeyId/secretAccessKey provided — falling back to DefaultCredentialsProvider")
+        DefaultCredentialsProvider.create()
       case _ =>
         DefaultCredentialsProvider.create()
     }
