@@ -13,7 +13,8 @@ This project follows Semantic Versioning.
 ## [1.7.0] — 2026-03-04
 
 ### Changed
-- **Version bump** — Updated to version 1.7.0
+- **S3BlobStoreConfig** — `accessKeyId` and `secretAccessKey` changed from `String` to `Option[String] = None` (**breaking**: callers must wrap values in `Some(...)`)
+- **S3BlobStoreBoilerplate** — Falls back to `DefaultCredentialsProvider` (IAM role, env vars, instance metadata) when credentials are not provided. Logs a warning when only one of accessKeyId/secretAccessKey is supplied.
 
 ---
 
