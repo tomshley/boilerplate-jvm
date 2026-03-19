@@ -19,7 +19,7 @@
 
 package com.tomshley.boilerplate.jvm.transport
 
-import org.apache.pekko.Done
+import org.apache.pekko.{Done, NotUsed}
 import org.apache.pekko.actor
 import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.ActorSystem
@@ -28,6 +28,7 @@ import org.apache.pekko.stream.scaladsl.{Flow, Sink, Tcp}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.util.ByteString
 
+import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Success, Failure}
 
@@ -50,14 +51,28 @@ object TcpServerBoilerplate
       Tcp()
         .bind(interface, port)
         .to(Sink.foreach { connection =>
+          val initialState = handler.initialState
+          val latestState = new AtomicReference[handler.State](initialState)
           val flow = Flow[ByteString]
             .via(handler.framing)
             .map(_.compact)
-            .scanAsync((handler.initialState, ByteString.empty)) { case ((state, _), msg) =>
+            .scanAsync((initialState, ByteString.empty)) { case ((state, _), msg) =>
               handler.onMessage(msg, state)
             }
             .drop(1)
-            .map { case (_, response) => handler.outboundFraming(response) }
+            .map { case (state, response) =>
+              latestState.set(state)
+              handler.outboundFraming(response)
+            }
+            .watchTermination() { case (_, done) =>
+              done.onComplete {
+                case Success(_) =>
+                  handler.onConnectionClosed(latestState.get(), None)
+                case Failure(ex) =>
+                  handler.onConnectionClosed(latestState.get(), Some(ex))
+              }(ec)
+              NotUsed
+            }
           connection.handleWith(flow)
         })
         .run()
