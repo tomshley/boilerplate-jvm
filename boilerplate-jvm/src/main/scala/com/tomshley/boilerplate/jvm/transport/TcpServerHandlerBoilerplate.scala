@@ -46,3 +46,5 @@ trait TcpServerHandlerBoilerplate:
    * Encode application-level errors in the response ByteString instead.
    */
   def onMessage(msg: ByteString, state: State)(using ActorSystem[?]): Future[(State, ByteString)]
+
+  def onConnectionClosed(state: State, cause: Option[Throwable])(using ActorSystem[?]): Unit = ()
