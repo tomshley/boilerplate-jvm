@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory
 
 import scala.concurrent.Future
 
+@deprecated("Use TypedClusterHealthCheck", "next")
 class ClusterHealthCheck(system: ActorSystem) extends (() => Future[Boolean]) {
   private val log = LoggerFactory.getLogger(getClass)
 

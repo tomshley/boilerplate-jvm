@@ -10,6 +10,7 @@ import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.util.Timeout
 
 import scala.concurrent.duration.*
+import scala.jdk.DurationConverters.*
 
 final case class FlushBackpressureConfig(
     claimLagSoft: Long,
@@ -45,12 +46,12 @@ object FlushConfig {
       backpressure = FlushBackpressureConfig(
         claimLagSoft = backpressureConfig.getLong("claim-lag-soft"),
         claimLagHard = backpressureConfig.getLong("claim-lag-hard"),
-        pauseTimeout = Duration(backpressureConfig.getDuration("pause-timeout").toMillis, MILLISECONDS)
+        pauseTimeout = backpressureConfig.getDuration("pause-timeout").toScala
       ),
       close = FlushCloseConfig(
         askTimeout = Timeout.create(closeConfig.getDuration("ask-timeout")),
         inspectTimeout = Timeout.create(closeConfig.getDuration("inspect-timeout")),
-        retryDelay = Duration(closeConfig.getDuration("retry-delay").toMillis, MILLISECONDS),
+        retryDelay = closeConfig.getDuration("retry-delay").toScala,
         maxRetries = closeConfig.getInt("max-retries")
       ),
       recovery = FlushRecoveryConfig(

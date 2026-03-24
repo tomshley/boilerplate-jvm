@@ -16,7 +16,7 @@ class Idempotency(system: ActorSystem[?]) {
 
   final lazy val idempotencyCluster = ClusterSharding(system)
 
-  implicit private val timeout: Timeout =
+  private given timeout: Timeout =
     Timeout.create(
       system.settings.config
         .getDuration("tomshley-boilerplate-reqreply-idempotency.ask-timeout")
@@ -41,9 +41,10 @@ class Idempotency(system: ActorSystem[?]) {
               ): Future[Idempotency.RequestReply] = {
     val entityRef = idempotencyEntityRef(requestId)
     idempotencyResult(requestId, Some(entityRef))
-      .flatMap(idempotentRequest => {
+      .flatMap(idempotentRequest =>
         if (!idempotentRequest.isIdempotent) {
           responseBodyCallback.map { (response: Idempotency.RequestReply) =>
+            // Intentionally fire-and-forget the reply persistence; reqReply returns the original response immediately.
             entityRef.askWithStatus(
               Idempotent
                 .SingleReply(response.headers, response.body, _)
@@ -61,7 +62,7 @@ class Idempotency(system: ActorSystem[?]) {
             Idempotency.RequestReply(Option.empty, idempotentRequest.replyBody)
           )
         }
-      })
+      )
   }
 }
 

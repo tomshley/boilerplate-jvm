@@ -29,31 +29,31 @@ object TwilioClient {
   def sendMessageAsync(system: ActorSystem[?], to: String, body: String): Future[Message] = {
     given ec: ExecutionContext = system.executionContext
 
-    if configInstanceMaybe.isEmpty then {
-      Future.failed(new Exception("Twilio is not initialized"))
-    } else {
-      Twilio.init(configInstanceMaybe.get.accountSid, configInstanceMaybe.get.authToken)
-      Message
-        .creator(
-          new PhoneNumber(to),
-          configInstanceMaybe.get.twilioFrom,
-          body
-        ).createAsync().asScala
-    }
+    configInstanceMaybe match
+      case Some(config) =>
+        Twilio.init(config.accountSid, config.authToken)
+        Message
+          .creator(
+            new PhoneNumber(to),
+            config.twilioFrom,
+            body
+          ).createAsync().asScala
+      case None =>
+        Future.failed(new Exception("Twilio is not initialized"))
   }
 
   def sendMessage(system: ActorSystem[?], to: String, body: String): Option[Message] = {
-    if configInstanceMaybe.isEmpty then {
-      Option.empty[Message]
-    } else {
-      Twilio.init(configInstanceMaybe.get.accountSid, configInstanceMaybe.get.authToken)
-      Some(Message
-        .creator(
-          new PhoneNumber(to),
-          configInstanceMaybe.get.twilioFrom,
-          body
-        ).create())
-    }
+    configInstanceMaybe match
+      case Some(config) =>
+        Twilio.init(config.accountSid, config.authToken)
+        Some(Message
+          .creator(
+            new PhoneNumber(to),
+            config.twilioFrom,
+            body
+          ).create())
+      case None =>
+        Option.empty[Message]
   }
 }
 

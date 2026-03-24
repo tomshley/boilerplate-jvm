@@ -2,14 +2,22 @@ package com.tomshley.boilerplate.jvm.utils
 
 import com.github.nscala_time.time.{Implicits, StaticDateTime, StaticDateTimeFormat, StaticDateTimeZone, StaticDuration, StaticInterval, StaticLocalDate, StaticLocalDateTime, StaticLocalTime, StaticMonthDay, StaticPartial, StaticPeriod, StaticYearMonth}
 
+// Deprecated: java.time (JSR-310), designed by the Joda-Time author, ships with
+// the JDK since Java 8 and is the standard replacement. The type aliases and
+// forwarders here no longer add value over direct java.time imports.
+@deprecated("Use java.time directly", "next")
 object TimeUtils extends TimeUtils
 
+@deprecated("Use java.time directly", "next")
 object TimeUtilsTypes extends TimeUtilsTypes
 
+@deprecated("Use java.time directly", "next")
 object TimeUtilsForwarder extends TimeUtilsForwarder
 
+@deprecated("Use java.time directly", "next")
 trait TimeUtils extends TimeUtilsTypes with TimeUtilsForwarder with Implicits
 
+@deprecated("Use java.time directly", "next")
 trait TimeUtilsTypes {
   type Chronology = org.joda.time.Chronology
   type DateTime = org.joda.time.DateTime
@@ -26,6 +34,7 @@ trait TimeUtilsTypes {
   type MonthDay = org.joda.time.MonthDay
 }
 
+@deprecated("Use java.time directly", "next")
 trait TimeUtilsForwarder {
   val DateTime: StaticDateTime.type = com.github.nscala_time.time.StaticDateTime
   val DateTimeFormat: StaticDateTimeFormat.type = com.github.nscala_time.time.StaticDateTimeFormat
