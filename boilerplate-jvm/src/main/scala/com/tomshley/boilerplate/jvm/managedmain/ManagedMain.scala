@@ -26,13 +26,14 @@ import org.slf4j.{Logger, LoggerFactory}
 import scala.util.control.NonFatal
 
 protected[managedmain] trait ManagedMain {
-  def apply(serviceName:String, body: (system:ActorSystem[?]) => Unit): Unit = {
+  def apply(serviceName:String, body: (system:ActorSystem[?]) => Startup): Unit = {
     def logger: Logger = LoggerFactory.getLogger(s"$serviceName-$name")
 
     ActorSystem[Nothing](Behaviors.setup[Nothing] { context =>
       try {
         bootstrap(context.system, logger)
-        body(context.system)
+        given ActorSystem[?] = context.system
+        body(context.system).run
       } catch {
         case NonFatal(e) =>
           logger.error("Terminating due to initialization failure.", e)
