@@ -145,6 +145,7 @@ object Idempotent {
     ClusterSharding(system).init(Entity(EntityKey)(behaviorFactory))
   }
 
+  // TODO: Migrate to EventSourcedBehavior for crash-durable idempotency
   def apply(idempotentKey: String): Behavior[Command] =
     idempotency(idempotentKey, State.empty)
 
