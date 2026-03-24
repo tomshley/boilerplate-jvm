@@ -11,6 +11,7 @@ import org.apache.pekko.stream.Materializer
 import scala.io.StdIn
 import scala.concurrent.Future
 
+@deprecated("Use TypedClusterHealthCheckRoutes", "next")
 final class ClusterHealthCheckRoutes(host: String, port: Int)(implicit system: ActorSystem) {
 
   private val cluster = Cluster(system)

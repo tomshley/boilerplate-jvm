@@ -1,14 +1,14 @@
 package com.tomshley.boilerplate.jvm.utils
 
 import com.typesafe.config.Config
+import com.typesafe.config.ConfigFactory
 import org.apache.pekko.actor.typed.ActorSystem
 
 trait ConfigKeyUtil {
-  def config(implicit systemOption: Option[ActorSystem[?]] = Option.empty): Config = {
+  def config(using systemOption: Option[ActorSystem[?]] = Option.empty): Config = {
     systemOption match
-      case Some(value) => systemOption.get.settings.config
+      case Some(value) => value.settings.config
       case None =>
-        import com.typesafe.config.ConfigFactory
         ConfigFactory
           .load()
   }
