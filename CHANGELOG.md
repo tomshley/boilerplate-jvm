@@ -10,11 +10,55 @@ This project follows Semantic Versioning.
 
 ---
 
-## [1.7.0] — 2026-03-04
+## [1.8.0] — 2026-03-24
+
+### Added
+- **durablebufferedflush** — new `durablebufferedflush` package with write-ahead-log semantics for chunk spool-flush workflow
+  - **ChunkSpool** — local filesystem spool with fsync durability, zero-padded 9-digit sequence filenames, atomic `meta.json` updates
+  - **ChunkFlusher** — background flusher with configurable batch size and interval, contiguous watermark tracking
+  - **ClaimLagMonitor** — actor-based lag monitoring between spooled and flushed sequences
+  - **CloseValidationFailure** — structured close-time validation with gap detection and recovery hints
+  - **ExpectedCountRegistry** — tracks expected chunk counts per entity for close validation
+  - **RecoveryManager** — startup recovery scanning of spool directories, resumes in-flight flushes
+  - **SessionOps** — session lifecycle operations (open, claim, close) integrated with spool
+  - **Workflow** — orchestrates spool → flush → close with WAL semantics
+  - **ClaimPort** — trait for decoding envelopes and dispatching claims with reply bindings
+  - **BlobKeyResolver** — trait for mapping entity + sequence to blob storage keys
+  - **FlushConfig** — typed configuration for flush intervals, batch sizes, and timeouts
+- **ManagedMain** — `Startup` and `StartupGate` for ordered async initialization with dependency tracking
+
+### Changed
+- **TcpServerBoilerplate** — enhanced connection lifecycle: track latest handler state via `AtomicReference`, `watchTermination` to invoke `onConnectionClosed` on stream termination
+- **TcpServerHandlerBoilerplate** — added `onConnectionClosed(state: State, cause: Option[Throwable])` lifecycle hook with default no-op
+
+---
+
+## [1.7.3] — 2026-03-19
+
+### Added
+- **TcpServerBoilerplate** — `onConnectionClosed` lifecycle hook: tracks latest handler state via `AtomicReference`, invokes `onConnectionClosed(state, cause)` callback on TCP stream termination
+- **TcpServerHandlerBoilerplate** — `onConnectionClosed(state: State, cause: Option[Throwable])` with default no-op
+
+---
+
+## [1.7.2] — 2026-03-18
+
+### Changed
+- Removed IDE-specific entries from `.gitignore`
+
+---
+
+## [1.7.1] — 2026-03-08
 
 ### Changed
 - **S3BlobStoreConfig** — `accessKeyId` and `secretAccessKey` changed from `String` to `Option[String] = None` (**breaking**: callers must wrap values in `Some(...)`)
-- **S3BlobStoreBoilerplate** — Falls back to `DefaultCredentialsProvider` (IAM role, env vars, instance metadata) when credentials are not provided. Logs a warning when only one of accessKeyId/secretAccessKey is supplied.
+- **S3BlobStoreBoilerplate** — falls back to `DefaultCredentialsProvider` (IAM role, env vars, instance metadata) when credentials are `None`; logs warning when only one of accessKeyId/secretAccessKey is provided
+
+---
+
+## [1.7.0] — 2026-03-04
+
+Release of 1.6.0 develop changes to main. See 1.6.0 for details.
 
 ---
 
@@ -40,6 +84,22 @@ This project follows Semantic Versioning.
 - **TopicCreation** — fully async (`Future[Admin]`), removed blocking `.get()` and `sys.exit`; callers compose timeout/failure handling via `Future`
 - **WebServerBoilerplate** — added bind-failure handling (`system.terminate()` on failure) and `addToCoordinatedShutdown` (matches `GrpcServerBoilerplate` / `TcpServerBoilerplate`)
 - `AvroMarshaller` uses `MarshallModel[T]` (not a separate `AvroMarshallModel`) — one marker trait for all marshalling formats
+
+---
+
+## [1.5.3] — 2026-03-03
+
+### Added
+- **MintedPimpedBytes** — immutable byte array wrapper with content-based equality, cached hashCode, and transparent Jackson CBOR serialization via `@JsonValue`/`@JsonCreator(mode = DELEGATING)`
+- **Array[Byte].toMintedPimpedBytes** extension method for pimp-my-library conversion
+
+---
+
+## [1.5.2] — 2026-03-02
+
+### Changed
+- **KafkaKeyAvroMessageEnvelope** — switched from `SpecificRecord` to `GenericRecord` for Avro serialization (aligns with avro4s `ToRecord` output)
+- **ProducerAvroBoilerplate** — `ProducerSettings[String, SpecificRecord]` → `ProducerSettings[String, GenericRecord]`; removed `SPECIFIC_AVRO_READER_CONFIG`; removed redundant `configure()` override on typed serializer wrapper
 
 ---
 
