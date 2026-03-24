@@ -6,7 +6,44 @@ This project follows Semantic Versioning.
 
 ---
 
-## [Unreleased]
+## [1.9.0] — 2026-03-24
+
+### Added
+- **TypedHealthCheck** — typed actor system health check returning `Future[Boolean]`
+- **TypedClusterHealthCheck** — cluster-aware health check that reports true when member status is `Up` or `WeaklyUp`
+- **TypedClusterHealthCheckRoutes** — standalone HTTP health endpoint with coordinated shutdown unbind and bind-failure logging
+- **ChecksumUtil.toSHA256** — SHA-256 hex digest for cryptographically strong hashing
+- **TimeUtils.toFiniteDuration** — extension for `java.time.Duration` to Scala `FiniteDuration` conversion
+- **InfiniteIterationPromiseDeprecatedSpec** — test coverage for deprecated `InfiniteIterationPromise`
+- **FlushConfigSpec** — test coverage for `FlushConfig` typed configuration parsing
+- **TypedHealthCheckSpec**, **TypedClusterHealthCheckSpec**, **TypedClusterHealthCheckRoutesSpec** — health check test suites
+- **StartupGatedSpec** — test coverage for `ManagedMain` startup gate
+- **SingleShotBlobWriterSpec** — test coverage for single-shot blob writes
+- **S3ObjectExistsRecoverySpec** — test coverage for S3 existence check error recovery
+- **ChecksumUtilSpec** — SHA-256 test coverage
+- **TimeUtilsDeprecatedSpec** — test coverage for deprecated time utilities
+
+### Changed
+- **ClaimDispatch** renamed to **ClaimPort** — clearer port/adapter naming
+- **SessionOps** renamed to **SessionPort** — clearer port/adapter naming
+- **JsonMarshaller** — extracted `given formats` to trait level, removing redundant per-method declarations
+- **S3BlobStoreBoilerplate** — `objectExists` uses `recoverWith` with proper `Future` composition instead of `recover` with side-effecting throw
+- **Idempotency** — updated to `given` syntax for timeout; cleaner `flatMap` structure
+- **TwilioClient** — replaced if-else with idiomatic pattern matching on `configInstanceMaybe`
+- **ConfigKeyUtil** — updated to Scala 3 `using` parameter syntax; eliminated `.get` call
+- **StaticAssetRouting** — replaced nested if-else with `match`/`case` pattern matching
+- **FlushConfig** — `retryDelay` uses `toScala` duration conversion instead of manual millisecond extraction
+- **WebServerRoutingBoilerplate** — `routes` returns `Seq.empty` instead of throwing `NotImplementedError`
+- **CloseBarrier** — fixed indentation for `Future.successful(())` branch
+- **InfiniteIterationPromise** — marked `@deprecated` in favor of `Pekko Behaviors.withTimers`
+- **LoadStatusStartup** — modernized to Scala 3 syntax
+- **ClusterHealthCheck**, **ClusterHealthCheckRoutes**, **HealthCheck** — marked `@deprecated` in favor of typed equivalents
+- All test specs use `BeforeAndAfterAll` with proper `ActorTestKit` shutdown to prevent resource leaks
+
+### Removed
+- **TransportContext** — unused empty class removed
+- **SessionOps** file — replaced by **SessionPort**
+- **ClaimDispatch** file — replaced by **ClaimPort**
 
 ---
 
