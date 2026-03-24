@@ -19,14 +19,15 @@
 
 package com.tomshley.boilerplate.jvm.bootstrap
 
+import scala.concurrent.Await
 import scala.concurrent.Future
+import scala.concurrent.duration.Duration
+import scala.util.Try
 
+@deprecated("Use managedmain.Startup.gated instead", "next")
 object LoadStatusStartup{
   def start(body: => Future[Boolean]): Unit = {
-    val loadStatus: Future[Boolean] = body
-
-    while (!loadStatus.isCompleted) {
-      Thread.sleep(100)
-    }
+    Try(Await.result(body, Duration.Inf))
+    ()
   }
 }
