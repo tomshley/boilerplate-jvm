@@ -21,34 +21,16 @@ package com.tomshley.boilerplate.jvm.bootstrap
 
 import org.apache.pekko.actor.typed.ActorSystem
 
-import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.concurrent.{ExecutionContext, Future}
 
+@deprecated("Use Pekko Behaviors.withTimers for periodic work", "next")
 object InfiniteIterationPromise {
   def apply(system: ActorSystem[?], body: => Unit): Future[Boolean] = {
     given ec:ExecutionContext = system.executionContext
 
-    def processLoopIteration(body: => Unit): Future[Boolean] = {
-      body
+    def iterate: Future[Boolean] =
+      Future(body).flatMap(_ => iterate)
 
-      // For readability
-      val preventNextProcess = false
-      Future(preventNextProcess)
-    }
-    
-    def promiseIteration(body: => Unit): Future[Boolean] = {
-      val promise = Promise[Boolean]()
-      promise.completeWith(processLoopIteration(body))
-
-      promise.future.flatMap((preventNextProcess: Boolean) => {
-        if preventNextProcess then
-          Future(true)
-        else
-          promiseIteration(body)
-      })
-    }
-
-    promiseIteration {
-      body
-    }
+    iterate
   }
 }
