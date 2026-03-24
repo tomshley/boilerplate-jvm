@@ -24,16 +24,52 @@ import org.apache.pekko.actor
 import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.adapter.*
+import org.apache.pekko.stream.{Attributes, FlowShape, Inlet, Outlet}
 import org.apache.pekko.stream.scaladsl.{Flow, Sink, Tcp}
+import org.apache.pekko.stream.stage.{GraphStage, GraphStageLogic, InHandler, OutHandler}
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.util.ByteString
 
-import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Success, Failure}
 
 object TcpServerBoilerplate
   extends TransportBoilerplate[Tcp.ServerBinding, TcpServerHandlerBoilerplate] {
+
+  private class ConnectionLifecycleStage[S](
+      initialState: S,
+      outboundFraming: ByteString => ByteString,
+      onClosed: (S, Option[Throwable]) => Unit
+  ) extends GraphStage[FlowShape[(S, ByteString), ByteString]] {
+
+    val in: Inlet[(S, ByteString)] = Inlet("ConnectionLifecycle.in")
+    val out: Outlet[ByteString] = Outlet("ConnectionLifecycle.out")
+    override val shape: FlowShape[(S, ByteString), ByteString] = FlowShape(in, out)
+
+    override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
+      new GraphStageLogic(shape) with InHandler with OutHandler {
+        private var lastState: S = initialState
+        private var failureCause: Option[Throwable] = None
+
+        setHandlers(in, out, this)
+
+        override def onPush(): Unit = {
+          val (state, response) = grab(in)
+          lastState = state
+          push(out, outboundFraming(response))
+        }
+
+        override def onPull(): Unit = pull(in)
+
+        override def onUpstreamFailure(ex: Throwable): Unit = {
+          failureCause = Some(ex)
+          failStage(ex)
+        }
+
+        override def postStop(): Unit =
+          onClosed(lastState, failureCause)
+      }
+  }
 
   override def start(
                       interface: String,
@@ -52,7 +88,6 @@ object TcpServerBoilerplate
         .bind(interface, port)
         .to(Sink.foreach { connection =>
           val initialState = handler.initialState
-          val latestState = new AtomicReference[handler.State](initialState)
           val flow = Flow[ByteString]
             .via(handler.framing)
             .map(_.compact)
@@ -60,19 +95,11 @@ object TcpServerBoilerplate
               handler.onMessage(msg, state)
             }
             .drop(1)
-            .map { case (state, response) =>
-              latestState.set(state)
-              handler.outboundFraming(response)
-            }
-            .watchTermination() { case (_, done) =>
-              done.onComplete {
-                case Success(_) =>
-                  handler.onConnectionClosed(latestState.get(), None)
-                case Failure(ex) =>
-                  handler.onConnectionClosed(latestState.get(), Some(ex))
-              }(ec)
-              NotUsed
-            }
+            .via(Flow.fromGraph(new ConnectionLifecycleStage[handler.State](
+              initialState = initialState,
+              outboundFraming = handler.outboundFraming,
+              onClosed = (state, cause) => handler.onConnectionClosed(state, cause)
+            )))
           connection.handleWith(flow)
         })
         .run()
