@@ -24,19 +24,15 @@ trait StaticAssetRouting extends FilesUtil {
     Directives.get {
       pathPrefix("static") {
         path(RemainingPath) { pastePathWithExt =>
-          {
-            val matchedHTTPAssetType =
-              matchFileExtension(pastePathWithExt.toString)
-
-            if (matchedHTTPAssetType.isEmpty) {
+          matchFileExtension(pastePathWithExt.toString) match {
+            case None =>
               reject(
                 StaticAssetRoutingRejection(
                   "An unsupported asset type specified"
                 )
               )
-            }
-            extractExecutionContext { implicit executor =>
-              {
+            case Some(matchedHTTPAssetType) =>
+              extractExecutionContext { implicit executor =>
                 onComplete {
                   given materializer: actor.ActorSystem =
                     system.classicSystem
@@ -74,14 +70,13 @@ trait StaticAssetRouting extends FilesUtil {
                     complete(
                       HttpResponse(
                         entity = HttpEntity(
-                          matchedHTTPAssetType.get.toContentType,
+                          matchedHTTPAssetType.toContentType,
                           value
                         )
                       )
                     )
                 }
               }
-            }
           }
         }
       }

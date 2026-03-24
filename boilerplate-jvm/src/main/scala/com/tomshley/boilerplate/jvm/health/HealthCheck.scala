@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory
 
 import scala.concurrent.Future
 
+@deprecated("Use TypedHealthCheck", "next")
 class HealthCheck(system: ActorSystem) extends (() => Future[Boolean]) {
   private val log = LoggerFactory.getLogger(getClass)
 

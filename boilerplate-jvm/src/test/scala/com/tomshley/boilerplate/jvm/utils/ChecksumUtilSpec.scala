@@ -23,6 +23,22 @@ final class ChecksumUtilSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  "ChecksumUtil.toSHA256" should {
+    "produce a 64-char lowercase hex string" in {
+      val sha = UnderTest.toSHA256("hello")
+      sha.length shouldBe 64
+      sha.matches("[0-9a-f]{64}") shouldBe true
+    }
+
+    "be deterministic" in {
+      UnderTest.toSHA256("hello") shouldBe UnderTest.toSHA256("hello")
+    }
+
+    "match a known hash" in {
+      UnderTest.toSHA256("hello") shouldBe "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+    }
+  }
+
   "ChecksumUtil.computeCrc32" should {
     "return a non-negative Long" in {
       val crc = UnderTest.computeCrc32("hello".getBytes("UTF-8"))

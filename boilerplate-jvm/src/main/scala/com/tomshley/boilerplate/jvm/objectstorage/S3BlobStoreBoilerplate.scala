@@ -248,9 +248,9 @@ class S3BlobStoreBoilerplate(
     s3Client.headObject(request)
       .asScala
       .map(_ => true)
-      .recover {
-        case ex: S3Exception if ex.statusCode() == 404 => false
-        case NonFatal(ex) => throw new RuntimeException(s"Failed to check if object exists $bucket/$key", ex)
+      .recoverWith {
+        case ex: S3Exception if ex.statusCode() == 404 => Future.successful(false)
+        case NonFatal(ex) => Future.failed(ex)
       }
   }
 
