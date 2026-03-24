@@ -86,7 +86,7 @@ final class CloseBarrier[Device, Summary, Envelope, ReplyBinding](
       } else {
         val firstMissing = contiguousClaimsCount
         if (firstMissing > lastSpooledSeq) {
-        Future.successful(())
+          Future.successful(())
         } else {
           system.log.info(
             "Resending claims for entity {} seqs {} to {} ({} missing)",

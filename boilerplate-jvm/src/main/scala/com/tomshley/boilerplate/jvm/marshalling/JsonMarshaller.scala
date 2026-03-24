@@ -11,6 +11,7 @@ import scala.reflect.Manifest
 trait JsonMarshaller {
 
   val marshallerFormats: Formats = DefaultFormats
+  given formats: Formats = marshallerFormats
   /** serializeWithDefaults
    *
    * @param model T
@@ -18,7 +19,6 @@ trait JsonMarshaller {
    * @return String
    */
   final def serializeWithDefaults[T <: MarshallModel[T] : Manifest](model: T) : String = {
-    given formats: Formats = marshallerFormats
     write[T](model)
   }
 
@@ -29,7 +29,6 @@ trait JsonMarshaller {
    * @return T
    */
   final def deserializeWithDefaults[T <: MarshallModel[T] : Manifest](json: String): T = {
-    given formats: Formats = marshallerFormats
     read[T](json)
   }
 
@@ -41,7 +40,6 @@ trait JsonMarshaller {
    */
   final def serializeWithDefaultsAsync[T <: MarshallModel[T] : Manifest](model: T, ec: ExecutionContext) : Future[String] = {
     given exec: ExecutionContext = ec
-    given formats: Formats = marshallerFormats
     Future { write[T](model) }
   }
 
@@ -53,17 +51,14 @@ trait JsonMarshaller {
    */
   final def deserializeWithDefaultsAsync[T <: MarshallModel[T] : Manifest](json: String, ec: ExecutionContext): Future[T] = {
     given exec: ExecutionContext = ec
-    given formats: Formats = marshallerFormats
     Future { read[T](json) }
   }
 
   final def serializeCustomMap(model: Map[String, Any]): String = {
-    given formats: Formats = marshallerFormats
     write(model)
   }
 
   final def deserializeCustomMap(json: String): Map[String, Any] = {
-    given formats: Formats = marshallerFormats
     read(json)
   }
 

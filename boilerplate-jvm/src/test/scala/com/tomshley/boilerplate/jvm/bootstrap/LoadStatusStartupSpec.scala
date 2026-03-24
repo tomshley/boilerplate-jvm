@@ -36,5 +36,24 @@ final class LoadStatusStartupSpec
         startF.isCompleted shouldBe true
       }
     }
+
+    "return normally when the provided Future fails" in {
+      val p = Promise[Boolean]()
+
+      val startF: Future[Unit] = Future {
+        LoadStatusStartup.start(p.future)
+      }
+
+      Thread.sleep(150)
+      startF.isCompleted shouldBe false
+
+      p.failure(new RuntimeException("boom"))
+
+      eventually {
+        startF.isCompleted shouldBe true
+      }
+
+      startF.futureValue shouldBe ()
+    }
   }
 }
