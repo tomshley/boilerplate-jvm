@@ -26,8 +26,8 @@ final case class KafkaKeyAvroConsumerEnvelope(key: String, avroValue: GenericRec
     AvroMarshaller.fromRecord[T](avroValue)
 
   /** Async typed deserialization via AvroMarshaller. */
-  def asAsync[T <: MarshallModel[T]](using Decoder[T], SchemaFor[T], ExecutionContext): Future[T] =
-    AvroMarshaller.fromRecordAsync[T](avroValue, summon[ExecutionContext])
+  def asAsync[T <: MarshallModel[T]](using d: Decoder[T], s: SchemaFor[T], ec: ExecutionContext): Future[T] =
+    AvroMarshaller.fromRecordAsync[T](avroValue, ec)
 
 object KafkaKeyAvroConsumerEnvelope:
   def from(record: ConsumerRecord[String, GenericRecord]): KafkaKeyAvroConsumerEnvelope =
