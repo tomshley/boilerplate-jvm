@@ -6,6 +6,13 @@ This project follows Semantic Versioning.
 
 ---
 
+## [1.10.1] — 2026-03-25
+
+### Changed
+- **magicroot-sbt-projectsettings**: Updated to 1.3.17 for STS dependency support in pekkoStorageLibraries
+
+---
+
 ## [1.9.0] — 2026-03-24
 
 ### Added
