@@ -1,32 +1,35 @@
 package com.tomshley.boilerplate.jvm.kafka.util
 
-import io.confluent.kafka.serializers.*
 import org.apache.avro.generic.GenericRecord
-import org.apache.kafka.common.serialization.{Serializer, StringSerializer}
+import org.apache.kafka.common.serialization.StringSerializer
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.kafka.ProducerSettings
 
-import scala.jdk.CollectionConverters.*
+/** Avro producer settings with Confluent Schema Registry wire format.
+ *
+ * {{{
+ * MarshallModel[T]  ──  AvroMarshaller.toRecord (avro4s)  ──▶  GenericRecord
+ *                                                                    │
+ *                          KafkaAvroSerializer (Confluent wire format)│
+ *                                                                    ▼
+ *                                                                  Kafka
+ * }}}
+ *
+ * avro4s handles case class ↔ GenericRecord (via KafkaKeyAvroMessageEnvelope).
+ * This object wires GenericRecord ↔ wire bytes (via SchemaRegistrySerde).
+ * The Confluent serializer prepends `[0x00][schema-id]` to each message
+ * and registers schemas with the Schema Registry on first encounter.
+ */
+object ProducerAvroBoilerplate extends CreateProducer[String, GenericRecord]:
 
-object ProducerAvroBoilerplate extends CreateProducer[String, GenericRecord] {
   override def producerSettings(system: ActorSystem[?]): ProducerSettings[String, GenericRecord] =
-    producerSettings(system, system.settings.config.getString("schema-registry.url"))
+    producerSettings(system, SchemaRegistryConfig.fromConfig(system.settings.config))
 
-  def producerSettings(system: ActorSystem[?], schemaRegistryUrl: String): ProducerSettings[String, GenericRecord] = {
-    val kafkaAvroSerDeConfig = Map[String, Any](
-      AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG -> schemaRegistryUrl)
+  def producerSettings(system: ActorSystem[?], schemaRegistryUrl: String): ProducerSettings[String, GenericRecord] =
+    producerSettings(system, SchemaRegistryConfig(schemaRegistryUrl))
 
-    val kafkaAvroSerializer = new KafkaAvroSerializer()
-    kafkaAvroSerializer.configure(kafkaAvroSerDeConfig.asJava, false)
-
-    // Typed wrapper — Kafka does not call configure() on pre-instantiated serializers,
-    // so the manual configure() above is the only effective configuration.
-    val serializer: Serializer[GenericRecord] = new Serializer[GenericRecord] {
-      override def serialize(topic: String, data: GenericRecord): Array[Byte] =
-        kafkaAvroSerializer.serialize(topic, data)
-      override def close(): Unit = kafkaAvroSerializer.close()
-    }
-
-    ProducerSettings(system, new StringSerializer, serializer)
-  }
-}
+  def producerSettings(
+      system: ActorSystem[?],
+      config: SchemaRegistryConfig
+  ): ProducerSettings[String, GenericRecord] =
+    ProducerSettings(system, new StringSerializer, SchemaRegistrySerde.serializer(config))

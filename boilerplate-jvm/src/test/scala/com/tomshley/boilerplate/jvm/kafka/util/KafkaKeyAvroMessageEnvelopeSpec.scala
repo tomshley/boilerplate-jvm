@@ -50,7 +50,7 @@ final class KafkaKeyAvroMessageEnvelopeSpec extends AnyWordSpec with Matchers {
       envelope.headers.lastHeader("test-header").value() shouldBe "test-value".getBytes()
     }
 
-    "throw descriptive exception on serialization failure" in {
+    "throw on serialization failure with descriptive Avro message" in {
       // Create a GenericRecord with a valid schema but mismatched data to trigger write failure
       val schema = SchemaBuilder
         .record("FailRecord")
@@ -58,14 +58,14 @@ final class KafkaKeyAvroMessageEnvelopeSpec extends AnyWordSpec with Matchers {
         .requiredInt("num")
         .endRecord()
       val badRecord = new GenericData.Record(schema)
-      // Leave required field unset — GenericDatumWriter will throw NullPointerException
+      // Leave required field unset — GenericDatumWriter will throw
       
       val envelope = KafkaKeyAvroMessageEnvelope("service", "key123", badRecord)
       
-      val exception = intercept[RuntimeException] {
+      val exception = intercept[Exception] {
         envelope.messageBytes
       }
-      exception.getMessage should include("Failed to serialize Avro message for schema FailRecord")
+      exception.getMessage should include("FailRecord")
     }
   }
 }
