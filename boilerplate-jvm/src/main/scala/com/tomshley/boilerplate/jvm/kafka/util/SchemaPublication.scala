@@ -2,84 +2,63 @@ package com.tomshley.boilerplate.jvm.kafka.util
 
 import io.confluent.kafka.schemaregistry.avro.AvroSchema
 import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient
-import io.confluent.kafka.schemaregistry.client.rest.exceptions.RestClientException
 import org.slf4j.{Logger, LoggerFactory}
 
-import java.io.IOException
 import scala.annotation.tailrec
-import scala.collection.immutable
 import scala.concurrent.duration.{Duration, DurationInt}
+import scala.jdk.CollectionConverters.*
 import scala.util.{Failure, Success, Try}
 
-object SchemaPublication {
+object SchemaPublication:
 
-  final case class TopicSchemaSettings(topicSchemas: Map[String, AvroSchema],
-                                       registryURL: String,
-                                       identityMapCapacity: Int,
-                                       retriesNum: Int,
-                                       retriesInterval: Duration)
-  object TopicSchemaSettings {
+  final case class TopicSchemaSettings(
+      topicSchemas: Map[String, AvroSchema],
+      schemaRegistry: SchemaRegistryConfig,
+      identityMapCapacity: Int,
+      retriesNum: Int,
+      retriesInterval: Duration
+  )
+
+  object TopicSchemaSettings:
     def apply(
-      topicSchema: Map[String, AvroSchema],
-      registryURL: Option[String] = Option.empty,
-      identityMapCapacity: Option[Int] = Option.empty,
-      retriesNum: Option[Int] = Option.empty,
-      retriesInterval: Option[Duration] = Option.empty
-    ): TopicSchemaSettings = {
+        topicSchemas: Map[String, AvroSchema],
+        schemaRegistry: Option[SchemaRegistryConfig] = None,
+        identityMapCapacity: Option[Int] = None,
+        retriesNum: Option[Int] = None,
+        retriesInterval: Option[Duration] = None
+    ): TopicSchemaSettings =
       new TopicSchemaSettings(
-        topicSchema,
-        registryURL.getOrElse("http://localhost:8081"),
+        topicSchemas,
+        schemaRegistry.getOrElse(SchemaRegistryConfig("http://localhost:8081")),
         identityMapCapacity.getOrElse(200),
         retriesNum.getOrElse(5),
         retriesInterval.getOrElse(500.milliseconds)
       )
-    }
-  }
+
   private val logger: Logger = LoggerFactory.getLogger(getClass)
 
-  def publishWithRetry(
-    topicSchemaSettings: TopicSchemaSettings
-  ): immutable.Iterable[Unit] = {
-    val schemaRegistryClient = new CachedSchemaRegistryClient(
-      topicSchemaSettings.registryURL,
-      topicSchemaSettings.identityMapCapacity
+  def publishWithRetry(settings: TopicSchemaSettings): Unit =
+    val client = new CachedSchemaRegistryClient(
+      settings.schemaRegistry.url,
+      settings.identityMapCapacity,
+      settings.schemaRegistry.toConfluentConfig.asJava
     )
-
-    topicSchemaSettings.topicSchemas.map((ts: (String, AvroSchema)) => {
-      retryCallSchemaRegistry(logger)(
-        topicSchemaSettings.retriesNum,
-        topicSchemaSettings.retriesInterval, {
-          schemaRegistryClient.register(ts._1, ts._2)
-        }
-      ) match {
-        case failure @ Failure(_: IOException | _: RestClientException) =>
-          failure.exception.printStackTrace()
-        case _ =>
-          logger.info(
-            s"Schemas publication at: ${topicSchemaSettings.registryURL}"
-          )
-      }
-    })
-
-  }
+    settings.topicSchemas.foreach { (topic, schema) =>
+      retryRegister(settings.retriesNum, settings.retriesInterval) {
+        client.register(topic, schema)
+      } match
+        case Failure(e) =>
+          logger.error(s"Failed to register schema for topic $topic at ${settings.schemaRegistry.url}", e)
+        case Success(_) =>
+          logger.info(s"Published schema for topic $topic at ${settings.schemaRegistry.url}")
+    }
 
   @tailrec
-  private def retryCallSchemaRegistry(
-    logger: Logger
-  )(countdown: Int, interval: Duration, f: => Unit): Try[Unit] = {
-    Try(f) match {
-      case result @ Success(_) =>
-        logger.info("Successfully call the Schema Registry.")
-        result
-      case result @ Failure(_) if countdown <= 0 =>
-        logger.error("Fail to call the Schema Registry for the last time.")
-        result
-      case Failure(_) if countdown > 0 =>
-        logger.error(
-          s"Fail to call the Schema Registry, retry in ${interval.toSeconds} secs."
-        )
+  private def retryRegister(countdown: Int, interval: Duration)(op: => Unit): Try[Unit] =
+    Try(op) match
+      case result @ Success(_) => result
+      case result @ Failure(_) if countdown <= 0 => result
+      case Failure(_) =>
+        logger.warn(s"Schema registration failed, retrying in ${interval.toSeconds}s")
         Thread.sleep(interval.toMillis)
-        retryCallSchemaRegistry(logger)(countdown - 1, interval, f)
-    }
-  }
-}
+        retryRegister(countdown - 1, interval)(op)

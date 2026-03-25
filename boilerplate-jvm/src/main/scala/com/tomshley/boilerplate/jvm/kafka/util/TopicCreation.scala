@@ -21,7 +21,7 @@ import scala.util.control.NonFatal
  * configured with ConsumerSettings from ConsumerAvroBoilerplate or
  * ConsumerProtoBoilerplate.
  */
-object TopicCreation {
+object TopicCreation:
 
   private val logger: Logger = LoggerFactory.getLogger(getClass)
   final case class TopicSettings(partitions: Int, replicationFactor: Short)
@@ -29,80 +29,68 @@ object TopicCreation {
   private val closeTimeout: Duration = Duration.ofSeconds(5)
 
   private[util] def createTopicsWith(
-    clientConfig: Map[String, Object],
-    topics: Map[String, TopicSettings],
-    clientFactory: Map[String, Object] => Admin
+      clientConfig: Map[String, Object],
+      topics: Map[String, TopicSettings],
+      clientFactory: Map[String, Object] => Admin
   )(using ExecutionContext): Future[Admin] =
-    try {
-      createTopicsWithClient(clientFactory(clientConfig), topics)
-    } catch {
-      case NonFatal(ex) => Future.failed(ex)
-    }
+    try createTopicsWithClient(clientFactory(clientConfig), topics)
+    catch case NonFatal(ex) => Future.failed(ex)
 
   private def createTopicsWithClient(
-    client: Admin,
-    topics: Map[String, TopicSettings]
+      client: Admin,
+      topics: Map[String, TopicSettings]
   ): Future[Admin] =
-    try {
-      val newTopics = topics.map(t => {
-        new NewTopic(t._1, t._2.partitions, t._2.replicationFactor)
-      })
+    try
+      val newTopics = topics.map { (name, ts) =>
+        new NewTopic(name, ts.partitions, ts.replicationFactor)
+      }
 
-      logger.info(
-        s"Starting the topics creation for: ${topics.keys.mkString(", ")}"
-      )
+      logger.info(s"Starting topic creation for: ${topics.keys.mkString(", ")}")
 
       val createTopicsResult: CreateTopicsResult =
         client.createTopics(newTopics.asJavaCollection)
 
-      createTopicsResult.values().asScala.foreach {
-        case (topicName, kFuture) =>
-          kFuture.whenComplete {
-            case (_, throwable: Throwable) if Option(throwable).isDefined =>
-              logger.warn(s"Topic creation didn't complete for $topicName:", throwable)
-
-            case _ =>
-              newTopics.find(_.name() == topicName).map { topic =>
-                logger.info(
-                  s"""|Topic ${topic.name}
-                  | has been successfully created with ${topic.numPartitions} partitions
-                  | and replicated ${topic
-                       .replicationFactor() - 1} times""".stripMargin
-                    .replaceAll("\n", "")
-                )
-              }
-          }
+      createTopicsResult.values().asScala.foreach { (topicName, kFuture) =>
+        kFuture.whenComplete { (_, throwable) =>
+          if throwable != null then
+            logger.warn(s"Topic creation did not complete for $topicName:", throwable)
+          else
+            newTopics.find(_.name() == topicName).foreach { topic =>
+              logger.info(
+                s"Topic ${topic.name} created with ${topic.numPartitions} partitions" +
+                  s" and ${topic.replicationFactor() - 1} replicas"
+              )
+            }
+        }
       }
 
       val promise = Promise[Admin]()
       createTopicsResult.all().whenComplete { (_, throwable) =>
-        if (throwable == null) {
+        if throwable == null then
           logger.info("Topic creation stage completed.")
           promise.success(client)
-        } else if (throwable.isInstanceOf[TopicExistsException] ||
-                   Option(throwable.getCause).exists(_.isInstanceOf[TopicExistsException])) {
-          logger.info("Topic creation stage completed. (Topics already created)")
+        else if throwable.isInstanceOf[TopicExistsException] ||
+                Option(throwable.getCause).exists(_.isInstanceOf[TopicExistsException])
+        then
+          logger.info("Topic creation stage completed (topics already exist).")
           promise.success(client)
-        } else {
-          try { client.close(closeTimeout) } catch { case _: Exception => () }
+        else
+          try client.close(closeTimeout) catch case _: Exception => ()
           logger.error("Topic creation failed", throwable)
           promise.failure(throwable)
-        }
       }
       promise.future
-    } catch {
+    catch
       case NonFatal(ex) =>
-        try { client.close(closeTimeout) } catch { case _: Exception => () }
+        try client.close(closeTimeout) catch case _: Exception => ()
         Future.failed(ex)
-    }
 
-  def createTopics(clientConfig: Map[String, Object],
-                   topics: Map[String, TopicSettings])(using ExecutionContext): Future[Admin] = {
+  def createTopics(
+      clientConfig: Map[String, Object],
+      topics: Map[String, TopicSettings]
+  )(using ExecutionContext): Future[Admin] =
     createTopicsWith(
       clientConfig,
       topics,
-      clientFactory = (cfg: Map[String, Object]) => Admin.create(cfg.asJava)
+      clientFactory = cfg => Admin.create(cfg.asJava)
     )
-  }
-
-}
