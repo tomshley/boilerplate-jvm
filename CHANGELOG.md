@@ -6,6 +6,14 @@ This project follows Semantic Versioning.
 
 ---
 
+## [1.10.3] — 2026-03-26
+
+### Changed
+- **magicroot-sbt-projectsettings**: Updated to 1.3.18
+  - Consumes dockerUpdateLatest fix that prevents branch/release/hotfix pipelines from publishing plain latest Docker tag
+
+---
+
 ## [1.10.2] — 2026-03-26
 
 ### Added
