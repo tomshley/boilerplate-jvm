@@ -20,6 +20,7 @@ object CloseValidationFailure {
     val SequenceMismatch = "close_validation.sequence_mismatch"
     val ChunkAddressMissing = "close_validation.chunk_address_missing"
     val RequiredSessionFieldsMissing = "close_validation.required_session_fields_missing"
+    val CannotAbortClosedSession = "close_validation.cannot_abort_closed_session"
   }
 
   sealed trait Classification
@@ -68,6 +69,11 @@ object CloseValidationFailure {
     "Required session fields missing at Close time — session state is inconsistent"
   )
 
+  case object CannotAbortClosedSession extends CloseValidationFailure(
+    Code.CannotAbortClosedSession,
+    "Cannot abort closed session"
+  )
+
   private def classifyCode(code: String): Classification =
     code match {
       case Code.ClaimsCountMismatch | Code.SequenceMismatch => Classification.RecoverableResend
@@ -75,7 +81,8 @@ object CloseValidationFailure {
           Code.SessionNotOpen |
           Code.MissingValidationFields |
           Code.ChunkAddressMissing |
-          Code.RequiredSessionFieldsMissing => Classification.Fatal
+          Code.RequiredSessionFieldsMissing |
+          Code.CannotAbortClosedSession => Classification.Fatal
       case _ => Classification.Unknown
     }
 
@@ -98,7 +105,8 @@ object CloseValidationFailure {
       message == "Session not open" ||
       message == "Close validation requires expectedClaimsCount, expectedTotalBytes, and expectedLastSequence together" ||
       message == "ChunkAddress missing at Close time — session was opened without device identity" ||
-      message == "Required session fields missing at Close time — session state is inconsistent"
+      message == "Required session fields missing at Close time — session state is inconsistent" ||
+      message == "Cannot abort closed session"
     ) {
       Classification.Fatal
     } else {
@@ -114,6 +122,7 @@ object CloseValidationFailure {
     case MissingValidationFields => Classification.Fatal
     case ChunkAddressMissing => Classification.Fatal
     case RequiredSessionFieldsMissing => Classification.Fatal
+    case CannotAbortClosedSession => Classification.Fatal
     case _: IllegalStateException => Classification.Fatal
     case _: IllegalArgumentException => Classification.Fatal
     case other =>
