@@ -6,6 +6,14 @@ This project follows Semantic Versioning.
 
 ---
 
+## [1.10.2] — 2026-03-26
+
+### Added
+- **CloseValidationFailure.CannotAbortClosedSession** — new fatal error type for abort attempts on already-closed sessions
+- **CloseValidationFailure classification** — updated `classifyCode`, `classifyMessage`, and `classify` methods to handle `CannotAbortClosedSession`
+
+---
+
 ## [1.10.1] — 2026-03-25
 
 ### Changed
