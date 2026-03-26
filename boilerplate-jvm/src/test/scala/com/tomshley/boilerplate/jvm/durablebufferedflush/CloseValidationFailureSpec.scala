@@ -23,6 +23,7 @@ final class CloseValidationFailureSpec extends AnyWordSpec with Matchers {
 
       CloseValidationFailure.classify(new RuntimeException(message)) shouldBe Classification.Fatal
       CloseValidationFailure.classify(new RuntimeException(CloseValidationFailure.SessionNotOpen.getMessage)) shouldBe Classification.Fatal
+      CloseValidationFailure.classify(new RuntimeException(CloseValidationFailure.CannotAbortClosedSession.getMessage)) shouldBe Classification.Fatal
       CloseValidationFailure.classify(new RuntimeException(CloseValidationFailure.RequiredSessionFieldsMissing.getMessage)) shouldBe Classification.Fatal
       CloseValidationFailure.isFatal(new RuntimeException(message)) shouldBe true
     }
