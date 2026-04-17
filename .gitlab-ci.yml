@@ -7,27 +7,20 @@
 # ---------------------------------------------------------------------------
 include:
   - project: 'tomshley/brands/global/tware/tech/products/provisioning/cicd-pipelines'
-    ref: 'v0.4.20'
-    file:
-      - '/gitlab/ci/.stages-base.yml'
-      - '/gitlab/ci/.gitflow-base.yml'
-      - '/gitlab/ci/.gitflow-branch-policy.yml'
-      - '/gitlab/ci/.gitflow-jobs.yml'
-      - '/gitlab/ci/.sbt-runtime.yml'
-      - '/gitlab/ci/.artifact-tags.yml'
-      - '/gitlab/ci/.sbt-artifact-tags.yml'
-      - '/gitlab/ci/.artifact-publish-policy.yml'
-      - '/gitlab/ci/.security-scanning.yml'
+    ref: 'v0.5.5'
+    file: '/adapters/gitlab/ci/adapter.yml'
 
 variables:
-  CICD_PIPELINES_RUNNER_TAG: "0.4.20"
+  CICD_PIPELINES_RUNNER_TAG: "0.5.5"
+  SBT_OPTS: "-Xmx2G -Dsbt.log.noformat=true"
 
 # ---------------------------------------------------------------------------
 # Build
 # ---------------------------------------------------------------------------
 build-sbt:
-  extends:
-    - .tomshley-sbt-runtime
+  image: ${CICD_PIPELINES_REGISTRY}/cicd-runner-sbtdockertofu:${CICD_PIPELINES_RUNNER_TAG}
+  tags:
+    - saas-linux-medium-amd64
   stage: build
   script:
     - sbt compile
@@ -36,8 +29,9 @@ build-sbt:
 # Test
 # ---------------------------------------------------------------------------
 test-sbt:
-  extends:
-    - .tomshley-sbt-runtime
+  image: ${CICD_PIPELINES_REGISTRY}/cicd-runner-sbtdockertofu:${CICD_PIPELINES_RUNNER_TAG}
+  tags:
+    - saas-linux-medium-amd64
   stage: test
   needs: ["build-sbt"]
   script:
@@ -47,7 +41,26 @@ test-sbt:
 # Maven Publish
 # ---------------------------------------------------------------------------
 publish-maven:
+  image: ${CICD_PIPELINES_REGISTRY}/cicd-runner-sbtdockertofu:${CICD_PIPELINES_RUNNER_TAG}
+  tags:
+    - saas-linux-medium-amd64
   extends:
-    - .tomshley-sbt-runtime
-    - .sbt-publish
+    - .before-artifact-tags
     - .flow-artifact-publish
+  before_script:
+    - !reference [.tomshley-cicd-secure-files, before_script]
+    - !reference [.before-artifact-tags, before_script]
+    - |
+      if [ -f ".secure_files/.env" ]; then
+        set -a
+        source .secure_files/.env
+        set +a
+      fi
+  script:
+    - export TOMSHLEY_CICD_BUILD_REVISION="$CICD_PUBLISH_PINNABLE_TAG"
+    - sbt publish
+    - |
+      if [ "$CICD_PUBLISH_ROLLING" = "true" ]; then
+        export TOMSHLEY_CICD_BUILD_REVISION="$CICD_PUBLISH_ROLLING_TAG"
+        sbt publish
+      fi
