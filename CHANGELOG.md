@@ -6,7 +6,14 @@ This project follows Semantic Versioning.
 
 ---
 
-## [2.0.2] — 2026-04-24
+## [2.1.0] — 2026-04-24
+
+> MINOR bump (not PATCH) per `ThisBuild / versionScheme := Some("semver-spec")`.
+> Changes in this release are source-compatible but carry a default-policy
+> change (see below) and add fields to `SchemaRegistryConfig`, which per
+> standard Scala case-class semantics rewrites the synthetic `apply` / `copy`
+> / `unapply` / primary-constructor signatures and is therefore not
+> binary-compatible with `2.0.1` jars.
 
 ### Changed
 - **`SchemaRegistryConfig`**: Introduced opinionated schemas-as-code defaults for the
@@ -15,11 +22,28 @@ This project follows Semantic Versioning.
     default of `true`).
   - `useLatestVersion` defaults to `true` (was `KafkaAvroSerializer`'s built-in
     default of `false`).
-  - These flags are now emitted from `toConfluentConfig`, reach the
+  - These flags are emitted from the new `toSerializerConfig`, reach the
     `KafkaAvroSerializer` via `SchemaRegistrySerde.serializer`, and are
     overridable from HOCON via `schema-registry.auto-register-schemas` and
     `schema-registry.use-latest-version`, or programmatically via the
     constructor arguments.
+- **Config surfaces split** on `SchemaRegistryConfig`:
+  - New: `toSerializerConfig` — URL + auth + `auto.register.schemas` +
+    `use.latest.version`. Consumed by `KafkaAvroSerializer.configure`.
+  - New: `toClientConfig` — URL + auth only. Consumed by
+    `KafkaAvroDeserializer.configure` and `CachedSchemaRegistryClient`,
+    neither of which honour the serializer-only gate flags; keeping the
+    gate flags out of these surfaces prevents dead-weight config and
+    removes a forward-compat liability.
+  - `SchemaRegistrySerde.serializer` now calls `toSerializerConfig`;
+    `SchemaRegistrySerde.deserializer` and `SchemaPublication.publishWithRetry`
+    now call `toClientConfig`.
+
+### Deprecated
+- `SchemaRegistryConfig.toConfluentConfig` — aliased to `toSerializerConfig`
+  for one-release source compatibility. New code should pick
+  `toSerializerConfig` or `toClientConfig` explicitly based on the target
+  Confluent surface. Scheduled for removal in `3.0.0`.
 
 ### Fixed
 - **Schema drift via runtime auto-registration** (root cause of Confluent Cloud
@@ -41,16 +65,22 @@ This project follows Semantic Versioning.
     producers, or
   - opt back in explicitly with `schema-registry.auto-register-schemas = true`
     in HOCON (or pass `autoRegisterSchemas = true` to `SchemaRegistryConfig`).
-- No API removals or renames. Existing call sites of `SchemaRegistryConfig`,
+    When opting into auto-registration, also set `useLatestVersion = false`
+    to make intent explicit — Confluent resolves the ambiguous
+    `(autoRegister=true, useLatest=true)` state by taking the auto-register
+    branch (verified against `kafka-avro-serializer` 7.5.x bytecode), so the
+    default `useLatestVersion = true` becomes dead code in that configuration.
+- **Source-compatible**: existing call sites of `SchemaRegistryConfig`,
   `SchemaRegistrySerde`, `ProducerAvroBoilerplate`, and
-  `ConsumerAvroBoilerplate` recompile unchanged against `2.0.2`; the two
-  new fields are appended with default values.
-- **Source-compatible, binary-incompatible**: appending fields to the
-  `SchemaRegistryConfig` case class changes the primary constructor and
-  the generated `apply`, `copy`, and `unapply` signatures per standard
-  Scala case-class semantics. Downstream consumers pinned against `2.0.1`
-  jars must recompile against `2.0.2` — no pattern-match or method call
-  compiled against the old signatures will link at runtime.
+  `ConsumerAvroBoilerplate` recompile unchanged against `2.1.0`; the two
+  new fields are appended with default values and `toConfluentConfig` is
+  preserved as a deprecated alias.
+- **Binary-incompatible**: appending fields to the `SchemaRegistryConfig`
+  case class changes the primary constructor and the generated
+  `apply`, `copy`, and `unapply` signatures per standard Scala case-class
+  semantics. Downstream consumers pinned against `2.0.1` jars must
+  recompile against `2.1.0`. This is the reason this is a MINOR bump
+  rather than a PATCH under the declared `semver-spec` scheme.
 
 ---
 
