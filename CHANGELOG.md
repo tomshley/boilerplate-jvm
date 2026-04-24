@@ -6,6 +6,84 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.1.0] — 2026-04-24
+
+> MINOR bump (not PATCH) per `ThisBuild / versionScheme := Some("semver-spec")`.
+> Changes in this release are source-compatible but carry a default-policy
+> change (see below) and add fields to `SchemaRegistryConfig`, which per
+> standard Scala case-class semantics rewrites the synthetic `apply` / `copy`
+> / `unapply` / primary-constructor signatures and is therefore not
+> binary-compatible with `2.0.1` jars.
+
+### Changed
+- **`SchemaRegistryConfig`**: Introduced opinionated schemas-as-code defaults for the
+  Confluent Schema Registry serializer:
+  - `autoRegisterSchemas` defaults to `false` (was `KafkaAvroSerializer`'s built-in
+    default of `true`).
+  - `useLatestVersion` defaults to `true` (was `KafkaAvroSerializer`'s built-in
+    default of `false`).
+  - These flags are emitted from the new `toSerializerConfig`, reach the
+    `KafkaAvroSerializer` via `SchemaRegistrySerde.serializer`, and are
+    overridable from HOCON via `schema-registry.auto-register-schemas` and
+    `schema-registry.use-latest-version`, or programmatically via the
+    constructor arguments.
+- **Config surfaces split** on `SchemaRegistryConfig`:
+  - New: `toSerializerConfig` — URL + auth + `auto.register.schemas` +
+    `use.latest.version`. Consumed by `KafkaAvroSerializer.configure`.
+  - New: `toClientConfig` — URL + auth only. Consumed by
+    `KafkaAvroDeserializer.configure` and `CachedSchemaRegistryClient`,
+    neither of which honour the serializer-only gate flags; keeping the
+    gate flags out of these surfaces prevents dead-weight config and
+    removes a forward-compat liability.
+  - `SchemaRegistrySerde.serializer` now calls `toSerializerConfig`;
+    `SchemaRegistrySerde.deserializer` and `SchemaPublication.publishWithRetry`
+    now call `toClientConfig`.
+
+### Deprecated
+- `SchemaRegistryConfig.toConfluentConfig` — aliased to `toSerializerConfig`
+  for one-release source compatibility. New code should pick
+  `toSerializerConfig` or `toClientConfig` explicitly based on the target
+  Confluent surface. Scheduled for removal in `3.0.0`.
+
+### Fixed
+- **Schema drift via runtime auto-registration** (root cause of Confluent Cloud
+  UI rendering `{"__raw__": "…"}` for messages published by avro4s-based
+  producers): with `auto.register.schemas = true` (the prior default), each
+  boilerplate upgrade that shipped a new avro4s (notably `5.0.15`, included in
+  `2.0.0`) silently minted new schema-registry versions whose encoder output
+  differed from the hand-registered `.avsc` source of truth — including
+  `"default": ""` for enum fields, which is not a legal Avro default and
+  causes downstream Avro deserializers to fall back to the raw-bytes view.
+  The new defaults stop the producer from minting those drift versions;
+  subjects are now registered exclusively by the schema-repo runbook / CI
+  job, and producers encode against the registry's latest version.
+
+### Migration notes
+- Downstream projects that rely on the previous auto-registration behavior
+  (typically local or test setups that never seed the registry) must either:
+  - pre-register schemas via their schema-repo runbook before starting
+    producers, or
+  - opt back in explicitly with `schema-registry.auto-register-schemas = true`
+    in HOCON (or pass `autoRegisterSchemas = true` to `SchemaRegistryConfig`).
+    When opting into auto-registration, also set `useLatestVersion = false`
+    to make intent explicit — Confluent resolves the ambiguous
+    `(autoRegister=true, useLatest=true)` state by taking the auto-register
+    branch (verified against `kafka-avro-serializer` 7.5.x bytecode), so the
+    default `useLatestVersion = true` becomes dead code in that configuration.
+- **Source-compatible**: existing call sites of `SchemaRegistryConfig`,
+  `SchemaRegistrySerde`, `ProducerAvroBoilerplate`, and
+  `ConsumerAvroBoilerplate` recompile unchanged against `2.1.0`; the two
+  new fields are appended with default values and `toConfluentConfig` is
+  preserved as a deprecated alias.
+- **Binary-incompatible**: appending fields to the `SchemaRegistryConfig`
+  case class changes the primary constructor and the generated
+  `apply`, `copy`, and `unapply` signatures per standard Scala case-class
+  semantics. Downstream consumers pinned against `2.0.1` jars must
+  recompile against `2.1.0`. This is the reason this is a MINOR bump
+  rather than a PATCH under the declared `semver-spec` scheme.
+
+---
+
 ## [2.0.1] — 2026-04-23
 
 ### Changed
