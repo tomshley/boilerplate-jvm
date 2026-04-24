@@ -13,10 +13,12 @@ final class SchemaRegistryConfigSpec extends AnyWordSpec with Matchers {
       cfg.autoRegisterSchemas shouldBe false
       cfg.useLatestVersion shouldBe true
     }
+  }
 
-    "emit the schemas-as-code serde flags in toConfluentConfig by default" in {
+  "SchemaRegistryConfig.toSerializerConfig" should {
+    "emit the schemas-as-code serde flags by default" in {
       val cfg = SchemaRegistryConfig(url = "http://localhost:8081")
-      val serde = cfg.toConfluentConfig
+      val serde = cfg.toSerializerConfig
       serde(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG) shouldBe "http://localhost:8081"
       serde(AbstractKafkaSchemaSerDeConfig.AUTO_REGISTER_SCHEMAS) shouldBe "false"
       serde(AbstractKafkaSchemaSerDeConfig.USE_LATEST_VERSION) shouldBe "true"
@@ -28,7 +30,7 @@ final class SchemaRegistryConfigSpec extends AnyWordSpec with Matchers {
         url = "https://psrc.example.com",
         auth = Some(SchemaRegistryConfig.BasicAuth("key", "secret"))
       )
-      val serde = cfg.toConfluentConfig
+      val serde = cfg.toSerializerConfig
       serde(AbstractKafkaSchemaSerDeConfig.BASIC_AUTH_CREDENTIALS_SOURCE) shouldBe "USER_INFO"
       serde(AbstractKafkaSchemaSerDeConfig.USER_INFO_CONFIG) shouldBe "key:secret"
     }
@@ -39,7 +41,7 @@ final class SchemaRegistryConfigSpec extends AnyWordSpec with Matchers {
         autoRegisterSchemas = true,
         useLatestVersion = false
       )
-      val serde = cfg.toConfluentConfig
+      val serde = cfg.toSerializerConfig
       serde(AbstractKafkaSchemaSerDeConfig.AUTO_REGISTER_SCHEMAS) shouldBe "true"
       serde(AbstractKafkaSchemaSerDeConfig.USE_LATEST_VERSION) shouldBe "false"
     }
@@ -51,12 +53,52 @@ final class SchemaRegistryConfigSpec extends AnyWordSpec with Matchers {
         autoRegisterSchemas = true,
         useLatestVersion = false
       )
-      val serde = cfg.toConfluentConfig
+      val serde = cfg.toSerializerConfig
       serde(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG) shouldBe "https://psrc.example.com"
       serde(AbstractKafkaSchemaSerDeConfig.BASIC_AUTH_CREDENTIALS_SOURCE) shouldBe "USER_INFO"
       serde(AbstractKafkaSchemaSerDeConfig.USER_INFO_CONFIG) shouldBe "key:secret"
       serde(AbstractKafkaSchemaSerDeConfig.AUTO_REGISTER_SCHEMAS) shouldBe "true"
       serde(AbstractKafkaSchemaSerDeConfig.USE_LATEST_VERSION) shouldBe "false"
+    }
+  }
+
+  "SchemaRegistryConfig.toClientConfig" should {
+    "emit URL only when no auth is configured" in {
+      val cfg = SchemaRegistryConfig(url = "http://localhost:8081")
+      val client = cfg.toClientConfig
+      client(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG) shouldBe "http://localhost:8081"
+      client.contains(AbstractKafkaSchemaSerDeConfig.BASIC_AUTH_CREDENTIALS_SOURCE) shouldBe false
+    }
+
+    "emit URL + auth and NEVER the serializer gate flags" in {
+      val cfg = SchemaRegistryConfig(
+        url = "https://psrc.example.com",
+        auth = Some(SchemaRegistryConfig.BasicAuth("key", "secret")),
+        autoRegisterSchemas = true,
+        useLatestVersion = false
+      )
+      val client = cfg.toClientConfig
+      client(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG) shouldBe "https://psrc.example.com"
+      client(AbstractKafkaSchemaSerDeConfig.BASIC_AUTH_CREDENTIALS_SOURCE) shouldBe "USER_INFO"
+      client(AbstractKafkaSchemaSerDeConfig.USER_INFO_CONFIG) shouldBe "key:secret"
+      // Critical: gate flags MUST NOT leak into client/deserializer surfaces
+      // even when the config carries non-default values for them.
+      client.contains(AbstractKafkaSchemaSerDeConfig.AUTO_REGISTER_SCHEMAS) shouldBe false
+      client.contains(AbstractKafkaSchemaSerDeConfig.USE_LATEST_VERSION) shouldBe false
+    }
+  }
+
+  "SchemaRegistryConfig.toConfluentConfig (deprecated)" should {
+    "remain a source-compatible alias for toSerializerConfig" in {
+      val cfg = SchemaRegistryConfig(
+        url = "http://localhost:8081",
+        auth = Some(SchemaRegistryConfig.BasicAuth("k", "s")),
+        autoRegisterSchemas = true,
+        useLatestVersion = false
+      )
+      @annotation.nowarn("cat=deprecation")
+      val legacy = cfg.toConfluentConfig
+      legacy shouldBe cfg.toSerializerConfig
     }
   }
 

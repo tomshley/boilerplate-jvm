@@ -38,17 +38,17 @@ object SchemaPublication:
   private val logger: Logger = LoggerFactory.getLogger(getClass)
 
   def publishWithRetry(settings: TopicSchemaSettings): Unit =
-    // The configs map carries only connection properties (URL, auth). The
-    // `auto.register.schemas` / `use.latest.version` keys from
-    // `toConfluentConfig` are gate flags for the KafkaAvroSerializer runtime
-    // path; `CachedSchemaRegistryClient.register(...)` called below
-    // registers unconditionally. This decoupling is intentional: the
-    // runbook/CI publishes schemas via this method, while producers at
-    // runtime cannot mint drift versions.
+    // toClientConfig (URL + auth only). CachedSchemaRegistryClient.register(...)
+    // registers unconditionally and does not consume the serializer-side
+    // `auto.register.schemas` / `use.latest.version` gate flags, so they are
+    // intentionally omitted here. This decoupling is the point of the
+    // schemas-as-code contract: the runbook/CI publishes schemas via this
+    // method (always registers), while producers at runtime cannot mint
+    // drift versions (auto-register off by default).
     val client = new CachedSchemaRegistryClient(
       settings.schemaRegistry.url,
       settings.identityMapCapacity,
-      settings.schemaRegistry.toConfluentConfig.asJava
+      settings.schemaRegistry.toClientConfig.asJava
     )
     settings.topicSchemas.foreach { (topic, schema) =>
       retryRegister(settings.retriesNum, settings.retriesInterval) {
