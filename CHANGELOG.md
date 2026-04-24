@@ -6,6 +6,26 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.1] — 2026-04-23
+
+### Changed
+- **magicroot-sbt-projectsettings**: Updated to `2.0.3`.
+  - magicroot `2.0.3` adds `org.postgresql:r2dbc-postgresql:1.0.7.RELEASE`
+    to `pekkoPersistenceLibraries` because upstream `pekko-persistence-r2dbc`
+    1.1.0 demoted the driver from compile scope to `<scope>test</scope>`.
+  - `boilerplate-jvm` itself does not consume `pekkoPersistenceLibraries`,
+    so the runtime classpath of services that depend on boilerplate is
+    unchanged. This bump is purely an alignment refresh so the workspace
+    tree pins a single magicroot version across `boilerplate-jvm`,
+    `the schemas library`, `the acceptance-test library`, and the service repos.
+
+### Notes
+- magicroot `2.0.2` artifact is yanked (missing r2dbc-postgresql driver
+  broke downstream ingress; see magicroot 2.0.3 CHANGELOG).
+- No source code changes in this release — single-line plugin pin bump.
+
+---
+
 ## [2.0.0] — 2026-04-23
 
 Major version bump signals the coordinated Pekko family upgrade + SDK
