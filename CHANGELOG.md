@@ -6,6 +6,20 @@ This project follows Semantic Versioning.
 
 ---
 
+## [1.10.4] — 2026-04-23
+
+### Changed
+- **magicroot-sbt-projectsettings**: Updated to 1.3.22
+  - Consumes the Confluent Platform bump from `6.2.0` to `7.6.0` in
+    `PekkoProjectSettings` (`KafkaAvroVersion`, `KafkaStreamsVersion`).
+    Aligns the transitive `kafka-clients` artifact (`2.8.0` → `3.6.0`)
+    with the `confluentinc/cp-kafka:7.6.0` broker used in downstream
+    service CI. The prior 2.8-era client's transactional producer
+    protocol handshake hung indefinitely against a 3.6 broker, blocking
+    `ami-platform-structuring-server` E2E transactional tests.
+
+---
+
 ## [1.10.3] — 2026-03-26
 
 ### Changed
