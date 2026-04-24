@@ -6,6 +6,55 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.0] — 2026-04-23
+
+Major version bump signals the coordinated Pekko family upgrade + SDK
+refresh inherited from `magicroot-sbt-projectsettings 2.0.2`. The
+`boilerplate-jvm` API surface itself is unchanged — no renames, no
+removals. The major is a heads-up that the vendored Pekko stack runtime
+has moved forward (`1.1.x` → `1.5.x`) and downstream services should
+regression-test before promoting to production.
+
+### Changed
+- **magicroot-sbt-projectsettings**: Updated to `2.0.2`
+  - Inherits Pekko `1.1.x` → `1.5.x` (core, http, management, kafka-connector
+    milestone → GA). Includes the `PekkoProjectionVersion` split — pekko-projection-*
+    and pekko-persistence-r2dbc are pinned at `1.1.0` (their latest stable),
+    independent of `PekkoManagementVersion` `1.2.1`.
+  - magicroot `2.0.0` and `2.0.1` were never consumable (bad projection pin + partial
+    publish); `2.0.2` is the first usable 2.x release.
+  - `pekko-connectors-kafka 1.1.0-M1` → `1.1.0` GA resolves the
+    `Transactional.flow` stall against cp-kafka 7.6 observed in the
+    downstream `ami-platform-structuring-server` E2E test, and bumps the
+    transitive `kafka-clients` to `3.8.0`.
+  - Library refresh: avro4s `5.0.15`, logback `1.5.32`, scalatest `3.2.20`,
+    twilio `12.0.0`, aws-sdk `2.42.39`, scalapb `0.11.20`, protobuf-java
+    `3.25.5`.
+  - Deliberately held: Confluent `7.6.0` (8.x needs staged migration),
+    Testcontainers `1.20.0` (2.x relocates `KafkaContainer`).
+- **avro4s encoder return types** (`boilerplate-jvm/marshalling/serializers/avro/package.scala`):
+  Changed `Encoder.encode` return types from `T => Any` to `T => AnyRef` for
+  the custom `TimeUtils.DateTime`, `ZonedDateTime`, `File`, and `Path`
+  encoders to match avro4s `5.0.15`'s tightened `Encoder` trait signature.
+  All implementations already returned `String` (which is `AnyRef`); the
+  change is purely a type-annotation refinement, not a behavior change.
+
+### Migration notes
+- Downstream projects should bump both pins together:
+  - `project/plugins.sbt`: `magicroot-sbt-projectsettings 2.0.2`
+  - `build.sbt`: `boilerplate-jvm 2.0.0`
+- No `boilerplate-jvm` API surface changes. `AvroMarshaller`,
+  `TwilioClient`, `ProducerAvroBoilerplate`, `ConsumerAvroBoilerplate`,
+  `SchemaRegistrySerde`, `TopicCreation`, `PekkoClusterMain`, and the
+  `durablebufferedflush` / `managedmain` packages retain their existing
+  signatures.
+- Recommended downstream validation sweep: run integration tests that
+  exercise `Transactional.source` / `Transactional.flow`, pekko-http
+  routes, pekko-cluster-sharding entity recovery, and the Confluent
+  Schema Registry serde path before promoting.
+
+---
+
 ## [1.10.4] — 2026-04-23
 
 ### Changed
