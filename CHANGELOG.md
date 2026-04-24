@@ -6,6 +6,54 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.0.2] — 2026-04-24
+
+### Changed
+- **`SchemaRegistryConfig`**: Introduced opinionated schemas-as-code defaults for the
+  Confluent Schema Registry serializer:
+  - `autoRegisterSchemas` defaults to `false` (was `KafkaAvroSerializer`'s built-in
+    default of `true`).
+  - `useLatestVersion` defaults to `true` (was `KafkaAvroSerializer`'s built-in
+    default of `false`).
+  - These flags are now emitted from `toConfluentConfig`, reach the
+    `KafkaAvroSerializer` via `SchemaRegistrySerde.serializer`, and are
+    overridable from HOCON via `schema-registry.auto-register-schemas` and
+    `schema-registry.use-latest-version`, or programmatically via the
+    constructor arguments.
+
+### Fixed
+- **Schema drift via runtime auto-registration** (root cause of Confluent Cloud
+  UI rendering `{"__raw__": "…"}` for messages published by avro4s-based
+  producers): with `auto.register.schemas = true` (the prior default), each
+  boilerplate upgrade that shipped a new avro4s (notably `5.0.15`, included in
+  `2.0.0`) silently minted new schema-registry versions whose encoder output
+  differed from the hand-registered `.avsc` source of truth — including
+  `"default": ""` for enum fields, which is not a legal Avro default and
+  causes downstream Avro deserializers to fall back to the raw-bytes view.
+  The new defaults stop the producer from minting those drift versions;
+  subjects are now registered exclusively by the schema-repo runbook / CI
+  job, and producers encode against the registry's latest version.
+
+### Migration notes
+- Downstream projects that rely on the previous auto-registration behavior
+  (typically local or test setups that never seed the registry) must either:
+  - pre-register schemas via their schema-repo runbook before starting
+    producers, or
+  - opt back in explicitly with `schema-registry.auto-register-schemas = true`
+    in HOCON (or pass `autoRegisterSchemas = true` to `SchemaRegistryConfig`).
+- No API removals or renames. Existing call sites of `SchemaRegistryConfig`,
+  `SchemaRegistrySerde`, `ProducerAvroBoilerplate`, and
+  `ConsumerAvroBoilerplate` recompile unchanged against `2.0.2`; the two
+  new fields are appended with default values.
+- **Source-compatible, binary-incompatible**: appending fields to the
+  `SchemaRegistryConfig` case class changes the primary constructor and
+  the generated `apply`, `copy`, and `unapply` signatures per standard
+  Scala case-class semantics. Downstream consumers pinned against `2.0.1`
+  jars must recompile against `2.0.2` — no pattern-match or method call
+  compiled against the old signatures will link at runtime.
+
+---
+
 ## [2.0.1] — 2026-04-23
 
 ### Changed
