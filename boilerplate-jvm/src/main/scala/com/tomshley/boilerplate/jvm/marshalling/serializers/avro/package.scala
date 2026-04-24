@@ -46,7 +46,7 @@ package object avro {
     def schema: Schema = Schema.create(Schema.Type.STRING)
 
   given Encoder[TimeUtils.DateTime] with
-    def encode(schema: Schema): TimeUtils.DateTime => Any = _.toString
+    def encode(schema: Schema): TimeUtils.DateTime => AnyRef = _.toString
 
   given Decoder[TimeUtils.DateTime] with
     def decode(schema: Schema): Any => TimeUtils.DateTime =
@@ -58,7 +58,7 @@ package object avro {
     def schema: Schema = Schema.create(Schema.Type.STRING)
 
   given Encoder[ZonedDateTime] with
-    def encode(schema: Schema): ZonedDateTime => Any = _.toString
+    def encode(schema: Schema): ZonedDateTime => AnyRef = _.toString
 
   given Decoder[ZonedDateTime] with
     def decode(schema: Schema): Any => ZonedDateTime =
@@ -70,7 +70,7 @@ package object avro {
     def schema: Schema = Schema.create(Schema.Type.STRING)
 
   given Encoder[File] with
-    def encode(schema: Schema): File => Any =
+    def encode(schema: Schema): File => AnyRef =
       f => f.toPath.toAbsolutePath.toString
 
   given Decoder[File] with
@@ -83,7 +83,7 @@ package object avro {
     def schema: Schema = Schema.create(Schema.Type.STRING)
 
   given Encoder[Path] with
-    def encode(schema: Schema): Path => Any =
+    def encode(schema: Schema): Path => AnyRef =
       p => p.toAbsolutePath.toString
 
   given Decoder[Path] with
