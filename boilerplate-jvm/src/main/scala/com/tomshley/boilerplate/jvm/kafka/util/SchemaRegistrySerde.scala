@@ -23,13 +23,17 @@ object SchemaRegistrySerde:
 
   def serializer(config: SchemaRegistryConfig): Serializer[GenericRecord] =
     val s = new KafkaAvroSerializer()
-    s.configure(config.toConfluentConfig.asJava, false)
+    s.configure(config.toSerializerConfig.asJava, false)
     s.asInstanceOf[Serializer[GenericRecord]]
 
   def deserializer(config: SchemaRegistryConfig): Deserializer[GenericRecord] =
     val d = new KafkaAvroDeserializer()
+    // toClientConfig (URL + auth only): KafkaAvroDeserializer does not
+    // consume the serializer-side `auto.register.schemas` / `use.latest.version`
+    // gate flags; passing them here would be dead weight and a forward-compat
+    // liability if future Confluent versions begin rejecting unknown keys.
     d.configure(
-      (config.toConfluentConfig + (KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG -> "false")).asJava,
+      (config.toClientConfig + (KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG -> "false")).asJava,
       false
     )
     // KafkaAvroDeserializer returns Object; typed wrapper avoids asInstanceOf at every call site
