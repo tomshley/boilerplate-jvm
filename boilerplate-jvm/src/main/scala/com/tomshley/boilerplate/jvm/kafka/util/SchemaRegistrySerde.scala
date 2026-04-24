@@ -12,6 +12,12 @@ import scala.jdk.CollectionConverters.*
  * Schema Registry credentials. These handle the Confluent wire format
  * ({{{[0x00][4-byte schema-id][avro-binary]}}}), distinct from the avro4s
  * marshalling layer which handles case class ↔ GenericRecord.
+ *
+ * The serializer inherits `auto.register.schemas` and `use.latest.version`
+ * from the provided [[SchemaRegistryConfig]]. Defaults (off / on) enforce
+ * the schemas-as-code contract: the registry is the source of truth and
+ * producers encode against its latest version. See
+ * [[SchemaRegistryConfig]] for rationale and override paths.
  */
 object SchemaRegistrySerde:
 
