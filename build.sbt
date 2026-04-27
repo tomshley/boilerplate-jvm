@@ -26,8 +26,5 @@ lazy val `boilerplate-jvm` = (Project("boilerplate-jvm", file("boilerplate-jvm")
     organization := boilerplateProjectOrgName,
     magicRootPublishGitLabProjectId := 70100980,
     // Credential file lives in .secure_files/ (not project root)
-    credentials += Credentials(file(".secure_files/.credentials.gitlab")),
-    // Dependencies NOT covered by magicroot's composable plugins:
-    // Override ancient commons-io from magicroot's javaProject
-    dependencyOverrides += "commons-io" % "commons-io" % "2.15.1"
+    credentials += Credentials(file(".secure_files/.credentials.gitlab"))
   )
