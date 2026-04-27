@@ -6,6 +6,23 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.1.1] — 2026-04-27
+
+### Changed
+- Bump `magicroot-sbt-projectsettings` plugin `2.0.3 -> 2.0.4`. magicroot
+  2.0.4 modernises `apacheCommonsIOVersion` from the ancient
+  `20030203.000550` Feb-2003 1.x build to `2.16.1`.
+
+### Removed
+- Drop the local `dependencyOverrides += "commons-io" % "commons-io" % "2.15.1"`
+  workaround. With magicroot 2.0.4 shipping a modern `commons-io`
+  baseline through `javaProject` (composed into the `LibProjectPekko*`
+  plugin family), the consumer-side override is no longer needed to
+  keep `commons-compress 1.27` and `org.apache.commons.io.Charsets`
+  resolvable under modern testcontainers.
+
+---
+
 ## [2.1.0] — 2026-04-24
 
 > MINOR bump (not PATCH) per `ThisBuild / versionScheme := Some("semver-spec")`.
