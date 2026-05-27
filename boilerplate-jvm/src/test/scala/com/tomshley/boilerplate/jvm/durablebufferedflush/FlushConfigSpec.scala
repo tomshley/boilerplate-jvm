@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Tomshley LLC.
+ * All Rights Reserved.
+ */
+
 package com.tomshley.boilerplate.jvm.durablebufferedflush
 
 import com.typesafe.config.ConfigFactory
@@ -18,7 +23,7 @@ final class FlushConfigSpec extends AnyWordSpec with Matchers with BeforeAndAfte
   }
 
   "FlushConfig.fromConfig" should {
-    "parse all fields from config" in {
+    "parse all fields from config including the explicit per-entity-timeout" in {
       val config = ConfigFactory.parseString(
         """
           |backpressure {
@@ -35,6 +40,7 @@ final class FlushConfigSpec extends AnyWordSpec with Matchers with BeforeAndAfte
           |recovery {
           |  parallelism = 5
           |  inspect-timeout = 4 s
+          |  per-entity-timeout = 90 s
           |}
           |""".stripMargin
       )
@@ -50,6 +56,33 @@ final class FlushConfigSpec extends AnyWordSpec with Matchers with BeforeAndAfte
       parsed.close.maxRetries shouldBe 7
       parsed.recovery.parallelism shouldBe 5
       parsed.recovery.inspectTimeout.duration shouldBe 4.seconds
+      parsed.recovery.perEntityTimeout shouldBe 90.seconds
+    }
+
+    "default per-entity-timeout to 120s when not specified" in {
+      val config = ConfigFactory.parseString(
+        """
+          |backpressure {
+          |  claim-lag-soft = 1
+          |  claim-lag-hard = 2
+          |  pause-timeout = 100 ms
+          |}
+          |close {
+          |  ask-timeout = 1 s
+          |  inspect-timeout = 1 s
+          |  retry-delay = 10 ms
+          |  max-retries = 1
+          |}
+          |recovery {
+          |  parallelism = 1
+          |  inspect-timeout = 1 s
+          |}
+          |""".stripMargin
+      )
+
+      val parsed = FlushConfig.fromConfig(config, testKit.system)
+
+      parsed.recovery.perEntityTimeout shouldBe 120.seconds
     }
   }
 }

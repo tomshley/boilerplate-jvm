@@ -103,6 +103,16 @@ trait ChunkSpool {
 }
 
 object ChunkSpool {
-  def filesystem(system: ActorSystem[?], rootDir: Path): ChunkSpool =
+
+  /** Default filesystem-backed [[ChunkSpool]] that also reports its
+    * on-disk size, expressed as the intersection type
+    * `ChunkSpool & SpoolSizeReporter` so a single concrete instance
+    * satisfies both capabilities.
+    *
+    * Existing consumers that widen the result to `ChunkSpool` continue
+    * to compile unchanged — the intersection type is a subtype of
+    * `ChunkSpool`. New consumers (notably [[SpoolPressureMonitor]]) may
+    * narrow to `SpoolSizeReporter` without performing a runtime cast. */
+  def filesystem(system: ActorSystem[?], rootDir: Path): ChunkSpool & SpoolSizeReporter =
     new FilesystemChunkSpool(system, rootDir)
 }
