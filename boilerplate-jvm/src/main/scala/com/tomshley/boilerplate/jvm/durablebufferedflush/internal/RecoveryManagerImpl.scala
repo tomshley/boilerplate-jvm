@@ -10,6 +10,7 @@ import com.tomshley.boilerplate.jvm.durablebufferedflush.{
   ChunkSpool,
   ClaimPort,
   FlushConfig,
+  OrphanReconciler,
   SessionPort,
   RecoveryManager,
   RecoveryReport,
@@ -31,7 +32,8 @@ final class RecoveryManagerImpl[Device, Summary, Envelope, ReplyBinding](
     claimPort: ClaimPort[Envelope, ReplyBinding],
     config: FlushConfig,
     system: ActorSystem[?]
-) extends RecoveryManager {
+) extends RecoveryManager
+    with OrphanReconciler {
 
   private given ExecutionContext = system.executionContext
 
@@ -47,16 +49,85 @@ final class RecoveryManagerImpl[Device, Summary, Envelope, ReplyBinding](
   override def recover(): Future[RecoveryReport] =
     withRecoveryReplyBinding { recoveryReplyBinding =>
       spool.listEntities().flatMap { entityIds =>
-        recoverBatches(entityIds.distinct.sorted, recoveryReplyBinding).map { results =>
-          RecoveryReport(
-            sessionsRecovered = results.count { case RecoverySessionResult.Recovered(_) => true; case _ => false },
-            sessionsAborted = results.count(_ == RecoverySessionResult.Aborted),
-            sessionsCleaned = results.count(_ == RecoverySessionResult.Cleaned),
-            sessionsFailed = results.count(_ == RecoverySessionResult.Failed),
-            totalClaimsResent = results.map(_.claimsResent).sum
-          )
+        runRecoveryPass(entityIds.distinct.sorted, recoveryReplyBinding)
+      }
+    }
+
+  override def reconcileOrphans(isActive: String => Future[Boolean]): Future[RecoveryReport] =
+    withRecoveryReplyBinding { recoveryReplyBinding =>
+      spool.listEntities().flatMap { entityIds =>
+        val sortedIds = entityIds.distinct.sorted
+        partitionOrphans(sortedIds, isActive).flatMap { orphans =>
+          runRecoveryPass(orphans, recoveryReplyBinding)
         }
       }
+    }
+
+  /** Resolve `isActive` for every entity in batches sized by
+    * `config.recovery.parallelism`, returning the entities for which the
+    * predicate resolved to `false` (the orphans). Batched so that an
+    * expensive `isActive` implementation (e.g. an actor ask) cannot be
+    * fanned out unboundedly. A predicate failure or per-entity timeout is
+    * logged and treated as `true` (skip this entity this pass) — the
+    * conservative choice. */
+  private def partitionOrphans(
+      entityIds: Seq[String],
+      isActive: String => Future[Boolean]
+  ): Future[Seq[String]] =
+    entityIds.grouped(config.recovery.parallelism).foldLeft(Future.successful(Vector.empty[String])) {
+      (accFuture, batch) =>
+        accFuture.flatMap { acc =>
+          Future.traverse(batch) { id =>
+            withPerEntityTimeout(isActive(id), id, "isActive").recover { case NonFatal(ex) =>
+              system.log.warn(
+                "reconcileOrphans: isActive check failed for entity {}: {} — treating as active to skip reconciliation this pass",
+                id,
+                ex.getMessage
+              )
+              true
+            }.map(active => Option.when(!active)(id))
+          }.map(results => acc ++ results.flatten)
+        }
+    }
+
+  /** Wrap a per-entity Future with `config.recovery.perEntityTimeout`. Used to
+    * bound the wall-clock cost of any single per-entity recovery step so that
+    * a stuck downstream cannot wedge an entire reconciliation pass.
+    *
+    * On timeout the returned Future fails with [[TimeoutException]]; the
+    * caller's existing failure-containment logic decides how to interpret
+    * that (e.g. `partitionOrphans` treats it as "active", `recoverSession`
+    * contains it as a per-entity `Failed`).
+    *
+    * The original Future is NOT cancelled — Scala `Future` has no
+    * cancellation primitive — but the timeout completes the result
+    * deterministically and frees any caller waiting on it. */
+  private def withPerEntityTimeout[A](
+      work: Future[A],
+      entityId: String,
+      opName: String
+  ): Future[A] = {
+    val timeoutDuration = config.recovery.perEntityTimeout
+    val timeoutFuture: Future[A] = after(timeoutDuration, scheduler) {
+      Future.failed[A](new TimeoutException(
+        s"per-entity timeout ($timeoutDuration) exceeded for entity $entityId during $opName"
+      ))
+    }
+    Future.firstCompletedOf(Seq(work, timeoutFuture))
+  }
+
+  private def runRecoveryPass(
+      entityIds: Seq[String],
+      recoveryReplyBinding: ReplyBinding
+  ): Future[RecoveryReport] =
+    recoverBatches(entityIds, recoveryReplyBinding).map { results =>
+      RecoveryReport(
+        sessionsRecovered = results.count { case RecoverySessionResult.Recovered(_) => true; case _ => false },
+        sessionsAborted = results.count(_ == RecoverySessionResult.Aborted),
+        sessionsCleaned = results.count(_ == RecoverySessionResult.Cleaned),
+        sessionsFailed = results.count(_ == RecoverySessionResult.Failed),
+        totalClaimsResent = results.map(_.claimsResent).sum
+      )
     }
 
   private def recoverBatches(
@@ -74,7 +145,11 @@ final class RecoveryManagerImpl[Device, Summary, Envelope, ReplyBinding](
       entityId: String,
       recoveryReplyBinding: ReplyBinding
   ): Future[RecoverySessionResult] =
-    recoverSessionUnsafe(entityId, recoveryReplyBinding).recover { case NonFatal(ex) =>
+    withPerEntityTimeout(
+      recoverSessionUnsafe(entityId, recoveryReplyBinding),
+      entityId,
+      "recoverSession"
+    ).recover { case NonFatal(ex) =>
       system.log.error("Recovery failed for entity {} — containing failure: {}", entityId, ex.getMessage)
       RecoverySessionResult.Failed
     }
@@ -211,7 +286,7 @@ final class RecoveryManagerImpl[Device, Summary, Envelope, ReplyBinding](
       } else {
         val firstMissing = contiguousClaimsCount
         if (firstMissing > lastSpooledSeq) {
-        Future.successful(0L)
+          Future.successful(0L)
         } else {
           val batchSize = math.max(1, config.recovery.parallelism)
           (firstMissing to lastSpooledSeq).grouped(batchSize).foldLeft(Future.successful(0L)) { (accF, batch) =>
