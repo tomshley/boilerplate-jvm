@@ -29,9 +29,8 @@ import io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig
  * check from firing in production, downstream producers are expected to
  * maintain a `SchemaParitySpec`-style contract test that asserts the
  * avro4s-derived schema is structurally identical to the hand-registered
- * `.avsc` (see `ami-platform-ingress-server` and
- * `ami-platform-structuring-server` for references). This moves the
- * drift-detection from runtime failure to build-time failure.
+ * `.avsc`. This moves the drift-detection from runtime failure to
+ * build-time failure.
  *
  * '''Config surfaces.''' Two projections of this config are emitted:
  *   - [[toSerializerConfig]] — full set including the
