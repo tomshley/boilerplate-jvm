@@ -6,16 +6,7 @@ This project follows Semantic Versioning.
 
 ---
 
-## [Unreleased]
-
-> Anticipated MINOR bump (not PATCH) per `ThisBuild / versionScheme := Some("semver-spec")`.
-> Changes in this release are source-compatible (existing six-argument
-> `Workflow.apply`, `ChunkSpool.filesystem`, and all current
-> `OrphanSpoolSweeper` / `RecoveryManager` call sites compile unchanged)
-> but add fields to `FlushSweeperConfig`, `FlushRecoveryConfig`, and the
-> `WorkflowImpl` constructor, which per standard Scala case-class and
-> primary-constructor semantics rewrites synthetic signatures and is
-> therefore not binary-compatible with `2.1.1` jars.
+## [2.2.0] — 2026-05-27
 
 ### Added — `durablebufferedflush` spool durability & pressure
 
