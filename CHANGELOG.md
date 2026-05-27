@@ -6,6 +6,134 @@ This project follows Semantic Versioning.
 
 ---
 
+## [Unreleased]
+
+> Anticipated MINOR bump (not PATCH) per `ThisBuild / versionScheme := Some("semver-spec")`.
+> Changes in this release are source-compatible (existing six-argument
+> `Workflow.apply`, `ChunkSpool.filesystem`, and all current
+> `OrphanSpoolSweeper` / `RecoveryManager` call sites compile unchanged)
+> but add fields to `FlushSweeperConfig`, `FlushRecoveryConfig`, and the
+> `WorkflowImpl` constructor, which per standard Scala case-class and
+> primary-constructor semantics rewrites synthetic signatures and is
+> therefore not binary-compatible with `2.1.1` jars.
+
+### Added — `durablebufferedflush` spool durability & pressure
+
+- **`OrphanSpoolSweeper` sweep-duration logging** — every scheduled sweep
+  now records its outcome at INFO (success) or WARN (failure) with a
+  `durationMs=<n>` field for SLO instrumentation. A new `protected`
+  testing seam `OrphanSpoolSweeperImpl.onSweepComplete(SweepOutcome)` is
+  invoked once per sweep completion to permit deterministic observation
+  in tests without taking a logback dependency.
+- **`OrphanSpoolSweeper` Pekko `CircuitBreaker` failure-bounding** — the
+  sweeper now wraps its call into `RecoveryManager.reconcileOrphans` in a
+  Pekko `CircuitBreaker` parameterised by the new
+  `FlushSweeperConfig.maxSweepDuration` (call timeout) and
+  `maxConsecutiveFailures` (open threshold). When the breaker opens,
+  subsequent ticks fast-fail with `Circuit Breaker is open` until the
+  configured reset timeout elapses; lifecycle transitions
+  (CLOSED → OPEN → HALF-OPEN → CLOSED) are logged at INFO.
+- **`RecoveryManager` per-entity timeout** — recovery and reconciliation
+  steps for a single entity are now bounded by the new
+  `FlushRecoveryConfig.perEntityTimeout`. A stuck `isActive` predicate
+  or `recoverSession` call no longer blocks the whole sweep; the
+  timed-out entity is treated as a per-entity failure (counted, surfaced,
+  but not allowed to halt progress on its peers).
+- **`SpoolSizeReporter`** — sibling capability trait that
+  `ChunkSpool & SpoolSizeReporter` implementations satisfy to report
+  current spool occupancy. Both methods are asynchronous and actor-owned
+  — `currentSizeBytes(): Future[Long]` is O(1) (one mailbox enqueue +
+  Promise allocation) and `recountFromFilesystem(): Future[Long]` walks
+  the spool root and emits a `ReplaceWith` message to the size-accounting
+  actor so the counter is corrected for drift on every reconciliation
+  cycle. There is no atomic primitive and no shared mutable state on
+  the size-accounting path — the count lives entirely inside the actor's
+  behavior recursion, in the same architectural slot as `AdmissionGate`
+  and `SpoolPressureMonitor`.
+- **`SpoolPressureLevel`** — Scala 3 `enum` with three cases
+  (`Low` / `High` / `Critical`) emitted by `SpoolPressureMonitor` on
+  level transitions.
+- **`SpoolPressureConfig`** — configuration carrier with two thresholds
+  (alert / critical), two clear edges (alert-clear / critical-clear,
+  for hysteresis), monitor and reconciliation cadences, optional
+  configured capacity ceiling, and an operator-suggested
+  `suggestedRetryAfter` carried by `SpoolPressureCriticalException`.
+  Ships a `SpoolPressureConfig.Disabled` sentinel and a
+  `SpoolPressureConfig.fromConfig(parent)` HOCON reader that returns
+  `Disabled` when the `pressure { ... }` block is absent.
+- **`SpoolPressureMonitor`** — periodic monitor that samples
+  `SpoolSizeReporter` on a fast tick, applies the threshold and
+  hysteresis state machine, emits transitions to
+  `onLevelChange` subscribers (synchronous; exceptions contained), and
+  invokes the slow `recountFromFilesystem` cadence to correct hot-path
+  counter drift. Mirrors `OrphanSpoolSweeper`'s idempotent
+  `start` / `stop` lifecycle and tick re-entry guard. A second factory
+  overload accepts a caller-supplied `capacityProvider: () => Long`
+  for filesystem-aware capacity (canonically
+  `min(configured, fs.totalSpace)`).
+- **`AdmissionController`** — single-bit gate queried once per session in
+  `Workflow.prepareTransfer`. The default implementation is an internal
+  typed actor whose state is a `Boolean` carried through behavior
+  recursion — no `var`, no atomic, no shared mutable memory. All three
+  methods (`isOpen()`, `open()`, `close(reason)`) return `Future`, fold
+  cleanly into `Workflow.prepareTransfer`'s existing async chain, and
+  the two transitions log only on the edge. Ships an
+  `AdmissionController.AlwaysOpen` sentinel (pre-completed futures, no
+  actor traffic) used as the default by the six-argument
+  `Workflow.apply`. In-flight sessions are never gated — closing
+  admission affects new sessions only.
+- **`SpoolPressureCriticalException`** — typed backpressure signal
+  raised by `Workflow.prepareTransfer` when the admission controller
+  refuses a new session. Carries the operator-suggested `retryAfter`
+  for transport-agnostic surfacing (TCP error frame, HTTP
+  `503 Retry-After`, gRPC status, etc.).
+- **`Workflow.apply` admission-aware overload** — new 8-argument factory
+  that takes `admissionController: AdmissionController` and
+  `pressureConfig: SpoolPressureConfig`. The existing 6-argument
+  factory continues to compile and wires the
+  `AdmissionController.AlwaysOpen` + `SpoolPressureConfig.Disabled`
+  defaults, so call sites that do not yet wire pressure are unaffected.
+
+### Changed
+
+- **`ChunkSpool.filesystem` return type** widened from `ChunkSpool` to
+  `ChunkSpool & SpoolSizeReporter`. Source-compatible (intersection is a
+  subtype of `ChunkSpool`); new consumers may narrow to the reporter
+  capability without a runtime cast.
+- **`FlushSweeperConfig`** now carries `maxSweepDuration` and
+  `maxConsecutiveFailures` (parsed from HOCON keys
+  `sweeper.max-sweep-duration` and `sweeper.max-consecutive-failures`).
+  Defaults are `interval × 10` and `3` respectively — a loose bound for
+  background reconciliation so that a transient slow downstream does not
+  flap the breaker.
+- **`FlushRecoveryConfig`** now carries `perEntityTimeout` (parsed from
+  `recovery.per-entity-timeout`, default `120.seconds`). Sized to absorb
+  realistic minute-scale tail latencies on backing object-storage /
+  messaging round-trips.
+- **`OrphanSpoolSweeperImpl`** is no longer `final`. The testing seam
+  `onSweepComplete` lives there and tests subclass the impl to observe
+  outcomes deterministically.
+
+### Migration notes
+
+- Downstream projects that already supply HOCON config for
+  `recovery` / `sweeper` need not add the new keys — defaults are
+  conservative and preserve existing behavior.
+- Downstream projects that want spool-pressure backpressure must
+  (a) construct a `SpoolPressureMonitor` against the
+  `ChunkSpool & SpoolSizeReporter` returned by `ChunkSpool.filesystem`,
+  (b) construct an `AdmissionController`, (c) wire
+  `monitor.onLevelChange { case Critical => admission.close(...); case _ => admission.open() }`
+  — the returned `Future[Unit]` may be ignored on the monitor tick
+  (transitions are idempotent and the gate actor enqueues messages in
+  order), or piped to an observer for telemetry,
+  (d) build the `Workflow` via the new 8-argument
+  `Workflow.apply(..., admissionController, pressureConfig, system)`
+  overload, and (e) handle `SpoolPressureCriticalException` at the
+  transport boundary.
+
+---
+
 ## [2.1.1] — 2026-04-27
 
 ### Changed
@@ -111,8 +239,8 @@ This project follows Semantic Versioning.
   - `boilerplate-jvm` itself does not consume `pekkoPersistenceLibraries`,
     so the runtime classpath of services that depend on boilerplate is
     unchanged. This bump is purely an alignment refresh so the workspace
-    tree pins a single magicroot version across `boilerplate-jvm`,
-    `ami-platform-schemas`, `ami-acceptance`, and the service repos.
+    tree pins a single magicroot version across `boilerplate-jvm` and
+    downstream service repos.
 
 ### Notes
 - magicroot `2.0.2` artifact is yanked (missing r2dbc-postgresql driver
@@ -139,9 +267,9 @@ regression-test before promoting to production.
   - magicroot `2.0.0` and `2.0.1` were never consumable (bad projection pin + partial
     publish); `2.0.2` is the first usable 2.x release.
   - `pekko-connectors-kafka 1.1.0-M1` → `1.1.0` GA resolves the
-    `Transactional.flow` stall against cp-kafka 7.6 observed in the
-    downstream `ami-platform-structuring-server` E2E test, and bumps the
-    transitive `kafka-clients` to `3.8.0`.
+    `Transactional.flow` stall against cp-kafka 7.6 observed in
+    downstream E2E tests, and bumps the transitive `kafka-clients` to
+    `3.8.0`.
   - Library refresh: avro4s `5.0.15`, logback `1.5.32`, scalatest `3.2.20`,
     twilio `12.0.0`, aws-sdk `2.42.39`, scalapb `0.11.20`, protobuf-java
     `3.25.5`.
@@ -180,7 +308,7 @@ regression-test before promoting to production.
     with the `confluentinc/cp-kafka:7.6.0` broker used in downstream
     service CI. The prior 2.8-era client's transactional producer
     protocol handshake hung indefinitely against a 3.6 broker, blocking
-    `ami-platform-structuring-server` E2E transactional tests.
+    downstream E2E transactional tests.
 
 ---
 

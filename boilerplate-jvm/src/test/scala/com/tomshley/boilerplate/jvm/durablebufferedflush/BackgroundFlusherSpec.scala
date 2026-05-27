@@ -44,8 +44,9 @@ class DefaultChunkFlusherSpec
   private given ExecutionContext = testKit.system.executionContext
   private given Materializer = Materializer(testKit.system)
 
-  /** Test-local metadata adapter — produces the same key structure as the
-    * ingress-specific SpoolMetaFlusherAdapter without depending on it. */
+  /** Test-local metadata adapter — produces the same key structure that a
+    * downstream consumer's `SpoolMetaFlusherAdapter` would, without
+    * depending on any particular consumer's implementation. */
   private val testMetaAdapter: FlusherMetaAdapter[SpoolMeta] = new FlusherMetaAdapter[SpoolMeta] {
     override def toFlusherMetaView(meta: SpoolMeta): FlusherMetaView =
       FlusherMetaView(
