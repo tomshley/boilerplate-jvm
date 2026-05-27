@@ -43,6 +43,12 @@ trait Workflow[Device, Summary, Envelope, ReplyBinding] {
 }
 
 object Workflow {
+
+  /** Default factory. Backward-compatible six-argument shape — admission is
+    * permanently open ([[AdmissionController.AlwaysOpen]]) and pressure
+    * config is the [[SpoolPressureConfig.Disabled]] sentinel. Existing
+    * call sites that wired a workflow before the pressure architecture
+    * existed continue to compile unchanged. */
   def apply[Device, Summary, Envelope, ReplyBinding](
       spool: ChunkSpool,
       flusherFactory: ChunkFlusherFactory,
@@ -58,5 +64,32 @@ object Workflow {
       claimPort = claimPort,
       config = config,
       system = system
+    )
+
+  /** Pressure-aware factory. The supplied [[AdmissionController]] is read
+    * once per session in [[Workflow.prepareTransfer]]; when closed, the
+    * call fails with [[SpoolPressureCriticalException]] carrying
+    * `pressureConfig.suggestedRetryAfter`. The hot path
+    * ([[Workflow.acceptChunk]]) is intentionally never gated — see
+    * [[AdmissionController]] for the rationale. */
+  def apply[Device, Summary, Envelope, ReplyBinding](
+      spool: ChunkSpool,
+      flusherFactory: ChunkFlusherFactory,
+      sessionPort: SessionPort[Device, Summary],
+      claimPort: ClaimPort[Envelope, ReplyBinding],
+      config: FlushConfig,
+      admissionController: AdmissionController,
+      pressureConfig: SpoolPressureConfig,
+      system: ActorSystem[?]
+  ): Workflow[Device, Summary, Envelope, ReplyBinding] =
+    new WorkflowImpl(
+      spool = spool,
+      flusherFactory = flusherFactory,
+      sessionPort = sessionPort,
+      claimPort = claimPort,
+      config = config,
+      system = system,
+      admissionController = admissionController,
+      pressureConfig = pressureConfig
     )
 }

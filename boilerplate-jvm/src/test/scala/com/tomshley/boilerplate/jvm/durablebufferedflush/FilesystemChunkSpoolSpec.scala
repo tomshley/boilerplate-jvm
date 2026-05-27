@@ -201,6 +201,87 @@ class FilesystemChunkSpoolSpec
         spool.listEntities().futureValue shouldBe empty
       }
     }
+
+    // Track F.14.1 — `currentSizeBytes` increments by exactly the bytes
+    // written on every successful chunk write across multiple entities.
+    // The accounting is actor-owned and reads are async — futureValue
+    // is required on every assertion. Mailbox FIFO + the Promise
+    // happens-before from `write().futureValue` guarantees the
+    // Increment message lands before any subsequent Query.
+    "increment SpoolSizeReporter.currentSizeBytes on every chunk write" in {
+      withTempDir { rootDir =>
+        val spool = new FilesystemChunkSpool(testKit.system, rootDir)
+        spool.currentSizeBytes().futureValue shouldBe 0L
+
+        val entityA = "entity-size-a"
+        val entityB = "entity-size-b"
+        spool.initialize(entityA, SpoolMeta.initial(entityA, "device-a", "hash-a", 256L, 4L)).futureValue
+        spool.initialize(entityB, SpoolMeta.initial(entityB, "device-b", "hash-b", 256L, 4L)).futureValue
+
+        spool.write(entityA, 0L, Array.fill[Byte](64)(1)).futureValue
+        spool.currentSizeBytes().futureValue shouldBe 64L
+
+        spool.write(entityA, 1L, Array.fill[Byte](32)(2)).futureValue
+        spool.currentSizeBytes().futureValue shouldBe (64L + 32L)
+
+        spool.write(entityB, 0L, Array.fill[Byte](128)(3)).futureValue
+        spool.currentSizeBytes().futureValue shouldBe (64L + 32L + 128L)
+      }
+    }
+
+    // Track F.14.1 — `currentSizeBytes` decrements when an entity is
+    // cleaned up. The decrement is driven by meta's `totalSpooledBytes`
+    // (not a re-walk of the filesystem); meta / sidecar files are not
+    // counted in `currentSizeBytes` because they are not counted on the
+    // write path either.
+    "decrement SpoolSizeReporter.currentSizeBytes when an entity is cleaned up" in {
+      withTempDir { rootDir =>
+        val spool = new FilesystemChunkSpool(testKit.system, rootDir)
+        val entityA = "entity-size-cleanup-a"
+        val entityB = "entity-size-cleanup-b"
+
+        spool.initialize(entityA, SpoolMeta.initial(entityA, "device-a", "hash-a", 256L, 4L)).futureValue
+        spool.initialize(entityB, SpoolMeta.initial(entityB, "device-b", "hash-b", 256L, 4L)).futureValue
+        spool.write(entityA, 0L, Array.fill[Byte](48)(1)).futureValue
+        spool.write(entityA, 1L, Array.fill[Byte](48)(2)).futureValue
+        spool.write(entityB, 0L, Array.fill[Byte](32)(3)).futureValue
+        spool.currentSizeBytes().futureValue shouldBe (48L + 48L + 32L)
+
+        spool.cleanup(entityA).futureValue
+        spool.currentSizeBytes().futureValue shouldBe 32L
+
+        spool.cleanup(entityB).futureValue
+        spool.currentSizeBytes().futureValue shouldBe 0L
+      }
+    }
+
+    // Track F.14.1 — `recountFromFilesystem` walks the spool root, returns
+    // the authoritative chunk-byte total, AND emits a `ReplaceWith` message
+    // to the size-accounting actor so that synthetic drift introduced after
+    // the last write is corrected on the next read.
+    "recountFromFilesystem returns the on-disk total and corrects in-memory drift" in {
+      withTempDir { rootDir =>
+        val spool = new FilesystemChunkSpool(testKit.system, rootDir)
+        val entityId = "entity-recount"
+        spool.initialize(entityId, SpoolMeta.initial(entityId, "device-r", "hash-r", 256L, 4L)).futureValue
+        spool.write(entityId, 0L, Array.fill[Byte](40)(1)).futureValue
+        spool.write(entityId, 1L, Array.fill[Byte](40)(2)).futureValue
+        spool.currentSizeBytes().futureValue shouldBe 80L
+
+        // Simulate drift: a hand-crafted chunk file outside the spool's
+        // own bookkeeping. The recount must observe it.
+        val rogueChunk = rootDir.resolve(entityId).resolve("chunks").resolve("000000002.bin")
+        java.nio.file.Files.write(rogueChunk, Array.fill[Byte](20)(7))
+
+        val recountTotal = spool.recountFromFilesystem().futureValue
+        recountTotal shouldBe (80L + 20L)
+        // The actor-owned counter is corrected by the ReplaceWith message
+        // the recount enqueued. The Future and the message are dispatched
+        // from the same blocking-EC thread, so subsequent reads observe
+        // the replaced value (mailbox FIFO).
+        spool.currentSizeBytes().futureValue shouldBe (80L + 20L)
+      }
+    }
   }
 
   private final class BlockingFilesystemChunkSpool(

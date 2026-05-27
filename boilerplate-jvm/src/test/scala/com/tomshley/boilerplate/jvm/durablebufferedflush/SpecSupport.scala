@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Tomshley LLC.
+ * All Rights Reserved.
+ */
+
 package com.tomshley.boilerplate.jvm.durablebufferedflush
 
 import com.tomshley.boilerplate.jvm.durablebufferedflush.{SessionView, SpoolMeta}
@@ -23,7 +28,8 @@ private[durablebufferedflush] trait FlushSpecSupport { self: Assertions =>
       closeRetryDelay: FiniteDuration = 10.millis,
       closeMaxRetries: Int = 2,
       recoveryParallelism: Int = 2,
-      recoveryInspectTimeout: FiniteDuration = 500.millis
+      recoveryInspectTimeout: FiniteDuration = 500.millis,
+      recoveryPerEntityTimeout: FiniteDuration = 5.seconds
   ): FlushConfig =
     FlushConfig(
       backpressure = FlushBackpressureConfig(
@@ -39,7 +45,8 @@ private[durablebufferedflush] trait FlushSpecSupport { self: Assertions =>
       ),
       recovery = FlushRecoveryConfig(
         parallelism = recoveryParallelism,
-        inspectTimeout = Timeout(recoveryInspectTimeout)
+        inspectTimeout = Timeout(recoveryInspectTimeout),
+        perEntityTimeout = recoveryPerEntityTimeout
       )
     )
 

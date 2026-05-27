@@ -52,7 +52,9 @@ final class WorkflowImpl[Device, Summary, Envelope, ReplyBinding](
     sessionPort: SessionPort[Device, Summary],
     claimPort: ClaimPort[Envelope, ReplyBinding],
     config: FlushConfig,
-    system: ActorSystem[?]
+    system: ActorSystem[?],
+    admissionController: AdmissionController = AdmissionController.AlwaysOpen,
+    pressureConfig: SpoolPressureConfig = SpoolPressureConfig.Disabled
 ) extends Workflow[Device, Summary, Envelope, ReplyBinding] {
 
   private given ActorSystem[?] = system
@@ -118,17 +120,28 @@ final class WorkflowImpl[Device, Summary, Envelope, ReplyBinding](
   def prepareTransfer(
       binding: FlushConnectionBinding[ReplyBinding],
       descriptor: FlushTransferDescriptor[Device]
-  ): Future[FlushPreparedTransfer[ReplyBinding]] = {
-    given org.apache.pekko.util.Timeout = config.recovery.inspectTimeout
-    for {
-      existingSummary <- sessionPort.inspect(descriptor.entityId)
-      existingView = sessionPort.toSessionView(existingSummary)
-      result <- if (existingView.isClosed)
-                  prepareClosedSession(binding, descriptor)
-                else
-                  prepareOpenSession(binding, descriptor, existingView)
-    } yield result
-  }
+  ): Future[FlushPreparedTransfer[ReplyBinding]] =
+    // Admission gate is queried once per session at admission time. The
+    // hot path (`acceptChunk`) is intentionally never gated — a session
+    // that has already been admitted continues to flow even if the
+    // controller closes mid-session, because closing a stream that has
+    // already paid the fixed cost of admission would sacrifice durable
+    // in-flight bytes for a small reduction in pressure.
+    admissionController.isOpen().flatMap { gateOpen =>
+      if (!gateOpen)
+        Future.failed(SpoolPressureCriticalException(pressureConfig.suggestedRetryAfter))
+      else {
+        given org.apache.pekko.util.Timeout = config.recovery.inspectTimeout
+        for {
+          existingSummary <- sessionPort.inspect(descriptor.entityId)
+          existingView = sessionPort.toSessionView(existingSummary)
+          result <- if (existingView.isClosed)
+                      prepareClosedSession(binding, descriptor)
+                    else
+                      prepareOpenSession(binding, descriptor, existingView)
+        } yield result
+      }
+    }
 
   private def prepareClosedSession(
       binding: FlushConnectionBinding[ReplyBinding],
@@ -307,7 +320,7 @@ final class WorkflowImpl[Device, Summary, Envelope, ReplyBinding](
       meta: Option[SpoolMeta]
   ): Future[Unit] =
     if (meta.isEmpty && view.openedAt.isDefined && view.claimsCount > 0L && !view.isAborted)
-      abortAndCleanup(entityId, "Spool missing on reconnect; rebuilding from firmware retry")
+      abortAndCleanup(entityId, "Spool missing on reconnect; rebuilding from client retry")
     else
       Future.successful(())
 
@@ -323,7 +336,7 @@ final class WorkflowImpl[Device, Summary, Envelope, ReplyBinding](
     case Some(m) =>
       rebuildReconnectSpool(
         descriptor,
-        s"Spool metadata mismatch on reconnect; rebuilding from firmware retry (declaredPayloadSize=${m.declaredPayloadSize}, totalExpectedChunks=${m.totalExpectedChunks})"
+        s"Spool metadata mismatch on reconnect; rebuilding from client retry (declaredPayloadSize=${m.declaredPayloadSize}, totalExpectedChunks=${m.totalExpectedChunks})"
       )
     case None =>
       spool.initialize(
@@ -373,7 +386,7 @@ final class WorkflowImpl[Device, Summary, Envelope, ReplyBinding](
       case Some(meta) =>
         hasUnexpectedNextChunk(entityId, meta).flatMap {
           case true =>
-            abortAndCleanup(entityId, "Spool skew on reconnect; rebuilding from firmware retry").map(_ => None)
+            abortAndCleanup(entityId, "Spool skew on reconnect; rebuilding from client retry").map(_ => None)
           case false => Future.successful(Some(meta))
         }
       case None => Future.successful(None)

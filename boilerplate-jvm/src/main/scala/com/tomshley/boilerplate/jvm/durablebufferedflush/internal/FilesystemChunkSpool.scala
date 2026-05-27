@@ -5,7 +5,7 @@
 
 package com.tomshley.boilerplate.jvm.durablebufferedflush.internal
 
-import com.tomshley.boilerplate.jvm.durablebufferedflush.{ChunkSpool, SpoolMeta}
+import com.tomshley.boilerplate.jvm.durablebufferedflush.{ChunkSpool, SpoolMeta, SpoolSizeReporter}
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
@@ -20,6 +20,7 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.{FileVisitResult, Files, Path, SimpleFileVisitor}
 import java.util.UUID
 import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.jdk.CollectionConverters.IteratorHasAsScala
 import scala.util.{Failure, Success, Try, Using}
 
 /** Local filesystem spool for chunk data.
@@ -53,7 +54,7 @@ import scala.util.{Failure, Success, Try, Using}
 class FilesystemChunkSpool(
     system: ActorSystem[?],
     rootDir: Path
-) extends ChunkSpool {
+) extends ChunkSpool with SpoolSizeReporter {
 
   private given ExecutionContext =
     system.executionContext
@@ -63,6 +64,27 @@ class FilesystemChunkSpool(
   private val mapper = new ObjectMapper()
   mapper.registerModule(DefaultScalaModule)
   mapper.registerModule(new JavaTimeModule())
+
+  // Actor-owned byte counter. The actor's mailbox serializes increments
+  // (post-chunk-fsync), decrements (post-cleanup), full replacements
+  // (post-recount), and queries. There is no shared mutable state and no
+  // atomic primitive — the count lives entirely inside the actor's behavior
+  // recursion, which is the same architectural slot as `AdmissionGate` and
+  // `SpoolPressureMonitor`. Per-mutation cost is one mailbox enqueue; per-
+  // read cost is one mailbox enqueue plus one Promise allocation. Both are
+  // O(1) and both are dwarfed by the chunk + meta fsyncs already present
+  // on the write hot path.
+  //
+  // The actor starts at zero. Pre-existing on-disk state from a previous
+  // process is reconciled by the first `recountFromFilesystem()` call,
+  // which the monitor schedules on its slow tick. A fresh process therefore
+  // reads zero until that tick lands — the conservative default (no
+  // false-Critical signal at startup).
+  private val sizeAccount: ActorRef[SpoolSizeAccountingActor.Command] =
+    system.systemActorOf(
+      SpoolSizeAccountingActor(),
+      s"spool-size-${UUID.randomUUID()}"
+    )
 
   private object EntityActor {
     sealed trait Command
@@ -396,6 +418,12 @@ class FilesystemChunkSpool(
     fsyncParentDir(path.getParent)
     afterChunkFileFsync(entityId, seq, path, bytes.length.toLong)
     updateMetaBlocking(entityId, meta.withSpooled(seq, bytes.length.toLong))
+    // Inform the size-accounting actor after the chunk + meta are durable.
+    // The observed value via `currentSizeBytes()` therefore lags the on-disk
+    // truth by at most one in-flight chunk per entity actor (which
+    // serializes its own writes) plus one mailbox traversal on the
+    // size-accounting actor.
+    sizeAccount ! SpoolSizeAccountingActor.Increment(bytes.length.toLong)
     bytes.length.toLong
   }
 
@@ -429,25 +457,56 @@ class FilesystemChunkSpool(
   private def cleanupBlocking(entityId: String): Unit = {
     val path = entityDir(entityId)
     if (Files.exists(path)) {
-      Files.walkFileTree(path, new SimpleFileVisitor[Path]() {
-        override def visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult = {
-          Files.deleteIfExists(file)
-          FileVisitResult.CONTINUE
-        }
-
-        override def postVisitDirectory(dir: Path, exc: java.io.IOException | Null): FileVisitResult = {
-          Files.deleteIfExists(dir)
-          FileVisitResult.CONTINUE
-        }
-
-        override def visitFileFailed(file: Path, exc: java.io.IOException): FileVisitResult =
-          exc match {
-            case _: java.nio.file.NoSuchFileException => FileVisitResult.CONTINUE
-            case other => throw other
-          }
-      })
+      // Source of truth for the byte delta is the meta's `totalSpooledBytes`,
+      // which is maintained on every successful chunk write. Reading meta
+      // BEFORE we delete the directory avoids a second filesystem walk and
+      // a local fold accumulator. If meta has been corrupted or was never
+      // written (entity directory exists with no meta), we fall back to 0L
+      // and let the next `recountFromFilesystem()` tick reconcile the drift.
+      val deletedChunkBytes =
+        Try(readMetaBlocking(entityId)).toOption.flatten.map(_.totalSpooledBytes).getOrElse(0L)
+      deleteEntityTree(path)
+      if (deletedChunkBytes > 0L) {
+        sizeAccount ! SpoolSizeAccountingActor.Decrement(deletedChunkBytes)
+      }
     }
   }
+
+  /** Recursive directory delete. The visitor only deletes — no accumulator,
+    * no folding. The byte attribution for the size-accounting actor is
+    * driven by the meta's `totalSpooledBytes` (see `cleanupBlocking`). */
+  private def deleteEntityTree(path: Path): Unit =
+    Files.walkFileTree(path, new SimpleFileVisitor[Path]() {
+      override def visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult = {
+        Files.deleteIfExists(file)
+        FileVisitResult.CONTINUE
+      }
+
+      override def postVisitDirectory(dir: Path, exc: java.io.IOException | Null): FileVisitResult = {
+        Files.deleteIfExists(dir)
+        FileVisitResult.CONTINUE
+      }
+
+      override def visitFileFailed(file: Path, exc: java.io.IOException): FileVisitResult =
+        exc match {
+          case _: java.nio.file.NoSuchFileException => FileVisitResult.CONTINUE
+          case other                                => throw other
+        }
+    })
+
+  /** Predicate: does the supplied path live directly under a `chunks/`
+    * subdirectory of an entity? Used by `walkAndSumChunkBytes` to filter
+    * the recount fold so that meta / sidecar files are not counted as
+    * chunk bytes.
+    *
+    * `getParent` / `getFileName` on a JDK [[Path]] return `null` for
+    * root-relative cases (e.g. a top-level path with no parent). We lift
+    * both into [[Option]] and short-circuit through them — trust the
+    * option chain, not null checks. */
+  private def isChunkFile(file: Path): Boolean =
+    Option(file.getParent)
+      .flatMap(parent => Option(parent.getFileName))
+      .exists(_.toString == FilesystemChunkSpool.ChunksSubdir)
 
   private def validateEntityId(entityId: String): String = {
     require(entityId != null && entityId.nonEmpty, "entityId must be non-empty")
@@ -462,7 +521,7 @@ class FilesystemChunkSpool(
     normalizedRootDir.resolve(entityId).normalize()
 
   private def chunksDir(entityId: String): Path =
-    entityDir(entityId).resolve("chunks")
+    entityDir(entityId).resolve(FilesystemChunkSpool.ChunksSubdir)
 
   private def metaPath(entityId: String): Path =
     entityDir(entityId).resolve("meta.json")
@@ -508,4 +567,100 @@ class FilesystemChunkSpool(
     Files.move(tmpPath, finalPath, ATOMIC_MOVE, REPLACE_EXISTING)
     fsyncParentDir(finalPath.getParent)
   }
+
+  // -- SpoolSizeReporter ------------------------------------------------------
+
+  /** Async read of the actor-owned byte counter. O(1) — one mailbox
+    * enqueue plus one Promise allocation. The resolved value may briefly
+    * drift from the filesystem truth when a write or cleanup is in
+    * flight; the [[SpoolPressureMonitor]] reconciles drift via the
+    * periodic `recountFromFilesystem` call. */
+  override def currentSizeBytes(): Future[Long] = {
+    val reply = Promise[Long]()
+    sizeAccount ! SpoolSizeAccountingActor.Query(reply)
+    reply.future
+  }
+
+  /** Authoritative recount: walks every entity's `chunks/` subdirectory
+    * and sums chunk-file sizes via an immutable `Files.walk` fold. The
+    * walk result is then sent to the size-accounting actor as a
+    * [[SpoolSizeAccountingActor.ReplaceWith]] message so that the actor's
+    * view is corrected for any drift that accumulated against external
+    * mutations or in-flight writes.
+    *
+    * The Future resolves with the walk total. Because the actor processes
+    * the `ReplaceWith` asynchronously, a [[currentSizeBytes()]] reader
+    * that arrives immediately after this Future resolves may briefly see
+    * the pre-recount value — that drift closes within one mailbox
+    * traversal. The same property holds for any concurrent write whose
+    * `Increment` message races the `ReplaceWith`: the increment may be
+    * overwritten if it arrives at the actor BEFORE the recount, or
+    * preserved on top of the recount if AFTER. Either ordering is
+    * eventually-consistent with the filesystem.
+    *
+    * Runs on the spool's blocking dispatcher so that the walk does not
+    * starve the consumer's general-purpose pool. */
+  override def recountFromFilesystem(): Future[Long] =
+    Future {
+      val total = walkAndSumChunkBytes(normalizedRootDir)
+      sizeAccount ! SpoolSizeAccountingActor.ReplaceWith(total)
+      total
+    }(blockingEc)
+
+  /** Immutable fold over the spool root, summing the sizes of chunk
+    * files. Uses `Files.walk` (stream-shaped) so the accumulation can be
+    * expressed as a pure `.sum` — no var, no visitor accumulator. Closed
+    * resource-safely via `Using.resource`.
+    *
+    * Race-tolerant: if a chunk file disappears between the walk and the
+    * `Files.size` call (e.g. concurrent cleanup), the per-file `Try`
+    * absorbs the [[java.nio.file.NoSuchFileException]] as `0L` and the
+    * fold continues. */
+  private def walkAndSumChunkBytes(root: Path): Long =
+    if (!Files.exists(root)) 0L
+    else
+      Using.resource(Files.walk(root)) { stream =>
+        stream.iterator().asScala
+          .filter(p => Files.isRegularFile(p) && isChunkFile(p))
+          .map(p => Try(Files.size(p)).getOrElse(0L))
+          .sum
+      }
+
+  // -- internal: size-accounting actor ----------------------------------------
+
+  /** Typed actor that owns the byte counter for this spool. The Long
+    * lives entirely in `active(total)` via behavior recursion — there
+    * is no field, no atomic, no shared mutable state. Mutations and
+    * reads are serialized through the mailbox.
+    *
+    * The actor never stops on its own; it lives for the lifetime of the
+    * supplied [[ActorSystem]] and is reaped by system shutdown. This
+    * matches the per-entity actors that also live for the lifetime of
+    * the spool. */
+  private object SpoolSizeAccountingActor {
+    sealed trait Command
+    final case class Increment(delta: Long) extends Command
+    final case class Decrement(delta: Long) extends Command
+    final case class ReplaceWith(value: Long) extends Command
+    final case class Query(reply: Promise[Long]) extends Command
+
+    def apply(): Behavior[Command] = active(0L)
+
+    private def active(total: Long): Behavior[Command] = Behaviors.receiveMessage {
+      case Increment(d)   => active(math.max(0L, total + d))
+      case Decrement(d)   => active(math.max(0L, total - d))
+      case ReplaceWith(v) => active(math.max(0L, v))
+      case Query(reply)   =>
+        reply.success(total)
+        Behaviors.same
+    }
+  }
+}
+
+private[durablebufferedflush] object FilesystemChunkSpool {
+
+  /** Subdirectory name under each entity directory that holds chunk files.
+    * Centralised so the on-disk layout is documented in exactly one place
+    * and the chunk-file predicate has a single source of truth. */
+  val ChunksSubdir: String = "chunks"
 }

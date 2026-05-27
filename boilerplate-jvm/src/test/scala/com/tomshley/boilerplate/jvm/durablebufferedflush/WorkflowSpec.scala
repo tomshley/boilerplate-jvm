@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Tomshley LLC.
+ * All Rights Reserved.
+ */
+
 package com.tomshley.boilerplate.jvm.durablebufferedflush
 
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
@@ -163,7 +168,7 @@ final class DefaultFlushWorkflowSpec
       lagSnapshot(prepared.binding.lagMonitor).lastClaimConfirmedSeq shouldBe 2L
     }
 
-    "prepareTransfer rebuild from firmware retry when the actor is open but the spool is missing" in {
+    "prepareTransfer rebuild from client retry when the actor is open but the spool is missing" in {
       val descriptor = transferDescriptor(totalExpectedChunks = 4L)
       val spool = new RecordingChunkSpool
       val flusher = new RecordingChunkFlusher(descriptor.entityId)
@@ -565,6 +570,86 @@ final class DefaultFlushWorkflowSpec
       spool.cleanup(descriptor.entityId).futureValue
       spool.cleanupCalls.count(_ == descriptor.entityId) shouldBe 2
     }
+
+    // Track F.14.4 — when a pressure-aware Workflow is wired with a closed
+    // admission controller, prepareTransfer fails fast with
+    // SpoolPressureCriticalException carrying the configured retry-after.
+    // The session port is never inspected — admission gates the call before
+    // any per-session work runs.
+    "prepareTransfer fail with SpoolPressureCriticalException when admission is closed" in {
+      val descriptor = transferDescriptor()
+      val spool = new RecordingChunkSpool
+      val sessionPort = new RecordingSessionPort
+      val claimPort = new RecordingClaimPort
+      val admission = AdmissionController(testKit.system)
+      admission.close("synthetic critical").futureValue
+      val pressureConfig = SpoolPressureConfig.Disabled.copy(
+        suggestedRetryAfter = 17.seconds
+      )
+      val workflow = Workflow[String, TestSessionSummary, String, TestReplyBinding](
+        spool = spool,
+        flusherFactory = new RecordingChunkFlusherFactory,
+        sessionPort = sessionPort,
+        claimPort = claimPort,
+        config = makeConfig(),
+        admissionController = admission,
+        pressureConfig = pressureConfig,
+        system = testKit.system
+      )
+
+      val binding = workflow.openBinding()
+      val ex = workflow.prepareTransfer(binding, descriptor).failed.futureValue
+      ex shouldBe a[SpoolPressureCriticalException]
+      ex.asInstanceOf[SpoolPressureCriticalException].retryAfter shouldBe 17.seconds
+      // Admission gate ran BEFORE any session-port traffic. The default
+      // inspect handler throws AssertionError for any unexpected call —
+      // matching SpoolPressureCriticalException above proves inspect was
+      // never invoked.
+    }
+
+    // Track F.14.4 — admission is read once per session at admission time.
+    // The hot path (acceptChunk) is never gated. After a session is
+    // admitted, closing admission must NOT affect the in-flight session.
+    "acceptChunk continue to flow for an admitted session even after admission closes" in {
+      val descriptor = transferDescriptor(totalExpectedChunks = 4L)
+      val spool = new RecordingChunkSpool
+      val sessionPort = new RecordingSessionPort
+      sessionPort.inspectHandler = _ => Future.successful(sessionSummaryFor(descriptor))
+      val claimPort = new RecordingClaimPort
+      val flusher = new RecordingChunkFlusher(descriptor.entityId)
+      val flusherFactory = new RecordingChunkFlusherFactory
+      flusherFactory.enqueue(flusher)
+      val admission = AdmissionController(testKit.system)
+      val workflow = Workflow[String, TestSessionSummary, String, TestReplyBinding](
+        spool = spool,
+        flusherFactory = flusherFactory,
+        sessionPort = sessionPort,
+        claimPort = claimPort,
+        config = makeConfig(),
+        admissionController = admission,
+        pressureConfig = SpoolPressureConfig.Disabled,
+        system = testKit.system
+      )
+
+      // Admit the session while admission is open.
+      val binding = workflow.openBinding()
+      val prepared = workflow.prepareTransfer(binding, descriptor).futureValue
+
+      // Now close admission, mid-session.
+      admission.close("synthetic critical mid-session").futureValue
+
+      // The hot-path chunk acceptance must continue regardless.
+      val accepted = workflow.acceptChunk(
+        descriptor.entityId,
+        prepared.binding,
+        envelope = "chunk-0",
+        bytes = "chunk-0".getBytes,
+        zeroBasedSeq = 0L,
+        lastAcceptedSeq = -1L
+      ).futureValue
+      accepted.binding.replyBinding shouldBe binding.replyBinding
+      spool.writeCalls.size shouldBe 1
+    }
   }
 
   private val fixedInstant = Instant.parse("2026-03-23T00:00:00Z")
@@ -589,7 +674,8 @@ final class DefaultFlushWorkflowSpec
       ),
       recovery = FlushRecoveryConfig(
         parallelism = 1,
-        inspectTimeout = Timeout(1.second)
+        inspectTimeout = Timeout(1.second),
+        perEntityTimeout = 5.seconds
       )
     )
 

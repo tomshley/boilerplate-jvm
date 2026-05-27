@@ -14,6 +14,14 @@ trait RecoveryManager {
 }
 
 object RecoveryManager {
+
+  /** Build a recovery manager backed by the default implementation.
+    *
+    * The returned value satisfies both [[RecoveryManager]] (one-shot startup
+    * recovery) and [[OrphanReconciler]] (steady-state reconciliation used by
+    * [[OrphanSpoolSweeper]]). Callers that only need recovery may widen to
+    * `RecoveryManager`; callers that need the sweeper may widen to
+    * `OrphanReconciler`; nothing forces a caller to know about both. */
   def fromConfig[Device, Summary, Envelope, ReplyBinding](
       spool: ChunkSpool,
       flusherFactory: ChunkFlusherFactory,
@@ -21,7 +29,7 @@ object RecoveryManager {
       claimPort: ClaimPort[Envelope, ReplyBinding],
       config: FlushConfig,
       system: ActorSystem[?]
-  ): RecoveryManager =
+  ): RecoveryManager & OrphanReconciler =
     new RecoveryManagerImpl(
       spool = spool,
       flusherFactory = flusherFactory,
