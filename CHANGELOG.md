@@ -6,6 +6,13 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.2.1] — 2026-06-03
+
+### Changed
+- Bump `magicroot-sbt-projectsettings` plugin to `2.1.0` for Kafka Streams support
+
+---
+
 ## [2.2.0] — 2026-05-27
 
 ### Added — `durablebufferedflush` spool durability & pressure
