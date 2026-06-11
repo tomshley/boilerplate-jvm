@@ -933,7 +933,8 @@ final class DefaultFlushWorkflowSpec
         device: String,
         deviceCorrelationId: String,
         objectHashHex: String,
-        declaredPayloadSize: Long
+        declaredPayloadSize: Long,
+        fileName: Option[String]
     )(using Timeout): Future[TestSessionSummary] = {
       val call = RegisterCall(entityId, device, deviceCorrelationId, objectHashHex, declaredPayloadSize)
       registerCalls += call
