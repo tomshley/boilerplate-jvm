@@ -27,6 +27,12 @@ final case class SessionView[Device](
     lastClaimSequence: Long
 )
 
+/** @param fileName producer-declared file name, when the transport carries
+  *                 one (e.g. a TCP metadata frame). `None` for transports
+  *                 whose envelope has no file identity. Threaded to
+  *                 [[SessionPort.register]] so downstream read models can
+  *                 correlate re-uploads of the same producer file across
+  *                 content-hash-keyed entities. */
 final case class FlushTransferDescriptor[Device](
     entityId: String,
     device: Device,
@@ -34,7 +40,8 @@ final case class FlushTransferDescriptor[Device](
     deviceCorrelationId: String,
     objectHashHex: String,
     declaredPayloadSize: Long,
-    totalExpectedChunks: Long
+    totalExpectedChunks: Long,
+    fileName: Option[String] = None
 )
 
 final case class FlushConnectionBinding[ReplyBinding](
@@ -55,5 +62,6 @@ final case class FlushAcceptedChunk[ReplyBinding](
 )
 
 final case class FlushFinalizationResult[ReplyBinding](
-    binding: FlushConnectionBinding[ReplyBinding]
+    binding: FlushConnectionBinding[ReplyBinding],
+    outcome: FinalizeOutcome = FinalizeOutcome.Unverified(FinalizeOutcome.UnverifiedReason.NotEvaluated)
 )

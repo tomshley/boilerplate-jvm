@@ -40,7 +40,8 @@ final case class SpoolMeta(
     flushedSeq: Long,
     declaredPayloadSize: Long,
     totalExpectedChunks: Long,
-    createdAt: Instant
+    createdAt: Instant,
+    digestStateHex: Option[String] = None
 ) {
 
   /** Whether all expected chunks have been spooled */
@@ -50,6 +51,18 @@ final case class SpoolMeta(
   /** Whether flusher has caught up to the spool */
   @JsonIgnore
   def isFlushed: Boolean = flushedSeq >= lastSpooledSeq
+
+  /** Whether the digest midstate covers every spooled chunk.
+    *
+    * The midstate is advanced in the SAME atomic meta rename as
+    * `lastSpooledSeq`, so within one version the two cannot diverge. The
+    * only uncovered shape is a spool written by a pre-digest version:
+    * chunks exist (`lastSpooledSeq >= 0`) with no recorded state. Folding
+    * later chunks into a fresh digest would produce a silently wrong hash,
+    * so coverage is surfaced as a fact and verification reports
+    * [[FinalizeOutcome.UnverifiedReason.NoDigestCoverage]] instead. */
+  @JsonIgnore
+  def hasDigestCoverage: Boolean = digestStateHex.isDefined || lastSpooledSeq < 0L
 
   /** Number of chunks not yet flushed to blob storage */
   @JsonIgnore
@@ -65,6 +78,11 @@ final case class SpoolMeta(
   /** Advance the flushed watermark */
   def withFlushed(seq: Long): SpoolMeta =
     copy(flushedSeq = seq)
+
+  /** Replace the digest midstate checkpoint. `None` records (and
+    * propagates) the absence of coverage — see [[hasDigestCoverage]]. */
+  def withDigestState(stateHex: Option[String]): SpoolMeta =
+    copy(digestStateHex = stateHex)
 }
 
 object SpoolMeta {

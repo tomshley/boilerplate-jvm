@@ -6,6 +6,7 @@
 package com.tomshley.boilerplate.jvm.durablebufferedflush.internal
 
 import com.tomshley.boilerplate.jvm.durablebufferedflush.{ChunkSpool, SpoolMeta, SpoolSizeReporter}
+import com.tomshley.boilerplate.jvm.utils.RestorableDigestUtil
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
@@ -417,7 +418,20 @@ class FilesystemChunkSpool(
     }
     fsyncParentDir(path.getParent)
     afterChunkFileFsync(entityId, seq, path, bytes.length.toLong)
-    updateMetaBlocking(entityId, meta.withSpooled(seq, bytes.length.toLong))
+    // Digest midstate advances under the SAME atomic rename as
+    // lastSpooledSeq — coverage and watermark cannot diverge, even across
+    // crash/restart. The fold runs inside the per-entity actor's serialized
+    // write path (single-writer confinement); the BC digest never escapes
+    // RestorableDigestUtil's call frames. A spool whose existing chunks lack
+    // coverage (meta written by a pre-digest version) stays uncovered —
+    // None propagates rather than fabricating a wrong hash.
+    val nextDigestState: Option[String] =
+      if (meta.lastSpooledSeq < 0L) Some(RestorableDigestUtil.sha256FoldHex(None, bytes))
+      else meta.digestStateHex.map(state => RestorableDigestUtil.sha256FoldHex(Some(state), bytes))
+    updateMetaBlocking(
+      entityId,
+      meta.withSpooled(seq, bytes.length.toLong).withDigestState(nextDigestState)
+    )
     // Inform the size-accounting actor after the chunk + meta are durable.
     // The observed value via `currentSizeBytes()` therefore lags the on-disk
     // truth by at most one in-flight chunk per entity actor (which
