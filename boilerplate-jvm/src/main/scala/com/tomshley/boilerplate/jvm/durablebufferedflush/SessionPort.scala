@@ -10,12 +10,17 @@ import org.apache.pekko.util.Timeout
 import scala.concurrent.Future
 
 trait SessionPort[Device, Summary] {
+  /** @param fileName producer-declared file name when the transport
+    *                 carries one — see
+    *                 [[FlushTransferDescriptor.fileName]]. Implementations
+    *                 that have no use for it may ignore it. */
   def register(
       entityId: String,
       device: Device,
       deviceCorrelationId: String,
       objectHashHex: String,
-      declaredPayloadSize: Long
+      declaredPayloadSize: Long,
+      fileName: Option[String] = None
   )(using Timeout): Future[Summary]
 
   def inspect(entityId: String)(using Timeout): Future[Summary]

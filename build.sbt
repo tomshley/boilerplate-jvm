@@ -16,6 +16,10 @@ lazy val `boilerplate-jvm` = (Project("boilerplate-jvm", file("boilerplate-jvm")
     LibProjectPekkoMessagingPlugin,
     LibProjectPekkoStoragePlugin,
     LibProjectProtobufPlugin,
+    // BouncyCastle lightweight API (bcprov) for utils.RestorableDigestUtil —
+    // the JDK MessageDigest cannot export/restore midstate. Version is
+    // centralized in magicroot's cryptoLibraries.
+    LibProjectCryptoPlugin,
     VersionFilePlugin,
     TomshleyCIBuildVersionPlugin,
     PublishGitLabPlugin,

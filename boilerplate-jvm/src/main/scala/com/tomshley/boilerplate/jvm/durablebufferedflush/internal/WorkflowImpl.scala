@@ -6,6 +6,7 @@
 package com.tomshley.boilerplate.jvm.durablebufferedflush.internal
 
 import com.tomshley.boilerplate.jvm.durablebufferedflush.*
+import com.tomshley.boilerplate.jvm.utils.RestorableDigestUtil
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem, Behavior, Scheduler}
 import org.apache.pekko.actor.typed.scaladsl.AskPattern.*
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
@@ -173,7 +174,7 @@ final class WorkflowImpl[Device, Summary, Envelope, ReplyBinding](
       _             <- sessionPort.register(
                          descriptor.entityId, descriptor.device,
                          descriptor.deviceCorrelationId, descriptor.objectHashHex,
-                         descriptor.declaredPayloadSize
+                         descriptor.declaredPayloadSize, descriptor.fileName
                        )
       meta          <- resolveSpoolMeta(descriptor, validatedMeta)
       prepared      <- startFlusherAndSeedLag(binding, descriptor, meta)
@@ -237,7 +238,8 @@ final class WorkflowImpl[Device, Summary, Envelope, ReplyBinding](
   def finalizeTransfer(
       entityId: String,
       binding: FlushConnectionBinding[ReplyBinding],
-      lastSpooledSeq: Long
+      lastSpooledSeq: Long,
+      mismatchDirective: HashMismatchDirective
   ): Future[FlushFinalizationResult[ReplyBinding]] = {
     binding.flusher match {
       case None =>
@@ -256,21 +258,14 @@ final class WorkflowImpl[Device, Summary, Envelope, ReplyBinding](
               case None       => Future.failed(new IllegalStateException(s"Spool meta missing after drain for entity $entityId"))
               case Some(meta) => Future.successful(meta)
             }
-            _ <- closeBarrier.closeWithRetry(
-                   entityId = entityId,
-                   lastSpooledSeq = lastSpooledSeq,
-                   expectedClaimsCount = meta.totalExpectedChunks,
-                   expectedTotalBytes = meta.totalSpooledBytes,
-                   expectedLastSequence = lastSpooledSeq,
-                   replyBinding = binding.replyBinding
-                 )
-            _ <- spool.cleanup(entityId).recover { case NonFatal(ex) =>
-              system.log.warn("Spool cleanup failed for entity {} after close: {}", entityId, ex.getMessage)
+            outcome = evaluateContentHash(meta)
+            result <- (outcome, mismatchDirective) match {
+              case (mismatch: FinalizeOutcome.HashMismatch, HashMismatchDirective.HoldOpen) =>
+                holdOpenOnMismatch(entityId, binding, flusher, mismatch)
+              case _ =>
+                closeAndRelease(entityId, binding, flusher, lastSpooledSeq, meta, outcome)
             }
-            _ = flusher.stop()
-            _ = claimPort.clearEntityId(binding.replyBinding)
-            _ <- binding.lagMonitor.reset()
-          } yield FlushFinalizationResult(binding.copy(flusher = None))
+          } yield result
 
           happy.recoverWith { case NonFatal(ex) =>
             cleanupAfterFailure(entityId, binding, flusher, ex)
@@ -278,6 +273,77 @@ final class WorkflowImpl[Device, Summary, Envelope, ReplyBinding](
         }
     }
   }
+
+  override def resetTransfer(entityId: String, reason: String): Future[Unit] =
+    abortAndCleanup(entityId, reason)
+
+  /** Pure verdict over the drained spool meta — no side effects.
+    *
+    * The midstate covers chunks `0..lastSpooledSeq` by construction (it
+    * advances under the same atomic meta rename — see
+    * `FilesystemChunkSpool.writeBlocking`), so finishing the digest here
+    * is the hash of every accepted byte, including bytes accepted on prior
+    * connections of a resumed transfer.
+    */
+  private def evaluateContentHash(meta: SpoolMeta): FinalizeOutcome =
+    if (!meta.hasDigestCoverage)
+      FinalizeOutcome.Unverified(FinalizeOutcome.UnverifiedReason.NoDigestCoverage)
+    else {
+      val actualHex = RestorableDigestUtil.sha256DigestHex(meta.digestStateHex)
+      if (actualHex.equalsIgnoreCase(meta.objectHashHex)) FinalizeOutcome.Verified(actualHex)
+      else FinalizeOutcome.HashMismatch(declaredHex = meta.objectHashHex, actualHex = actualHex)
+    }
+
+  /** [[HashMismatchDirective.HoldOpen]] arm: the verdict is returned as a
+    * value and NOTHING domain-visible happens — no close, no abort, no
+    * spool cleanup. The session entity and every spooled chunk remain
+    * exactly as they were, so the caller can decide (typically
+    * [[Workflow.resetTransfer]] + a transport-level rejection). Only the
+    * connection-scoped resources are released: flusher stopped, claim
+    * binding cleared, lag monitor reset — symmetric with what a reconnect
+    * re-establishes in `startFlusherAndSeedLag`.
+    */
+  private def holdOpenOnMismatch(
+      entityId: String,
+      binding: FlushConnectionBinding[ReplyBinding],
+      flusher: ChunkFlusher,
+      mismatch: FinalizeOutcome.HashMismatch
+  ): Future[FlushFinalizationResult[ReplyBinding]] = {
+    system.log.warn(
+      "Content hash mismatch for entity {} (declared={}, actual={}) — holding session open per directive",
+      entityId, mismatch.declaredHex, mismatch.actualHex
+    )
+    flusher.stop()
+    claimPort.clearEntityId(binding.replyBinding)
+    binding.lagMonitor.reset().map { _ =>
+      FlushFinalizationResult(binding.copy(flusher = None), outcome = mismatch)
+    }
+  }
+
+  private def closeAndRelease(
+      entityId: String,
+      binding: FlushConnectionBinding[ReplyBinding],
+      flusher: ChunkFlusher,
+      lastSpooledSeq: Long,
+      meta: SpoolMeta,
+      outcome: FinalizeOutcome
+  ): Future[FlushFinalizationResult[ReplyBinding]] =
+    for {
+      _ <- closeBarrier.closeWithRetry(
+             entityId = entityId,
+             lastSpooledSeq = lastSpooledSeq,
+             expectedClaimsCount = meta.totalExpectedChunks,
+             expectedTotalBytes = meta.totalSpooledBytes,
+             expectedLastSequence = lastSpooledSeq,
+             replyBinding = binding.replyBinding
+           )
+      _ <- spool.cleanup(entityId).recover { case NonFatal(ex) =>
+        system.log.warn("Spool cleanup failed for entity {} after close: {}", entityId, ex.getMessage)
+      }
+      _ = flusher.stop()
+      _ = claimPort.clearEntityId(binding.replyBinding)
+      _ <- binding.lagMonitor.reset()
+    } yield FlushFinalizationResult(binding.copy(flusher = None), outcome = outcome)
 
   private def cleanupAfterFailure(
       entityId: String,
@@ -418,7 +484,8 @@ final class WorkflowImpl[Device, Summary, Envelope, ReplyBinding](
         descriptor.device,
         descriptor.deviceCorrelationId,
         descriptor.objectHashHex,
-        descriptor.declaredPayloadSize
+        descriptor.declaredPayloadSize,
+        descriptor.fileName
       ).flatMap { _ =>
         spool.initialize(
           descriptor.entityId,
