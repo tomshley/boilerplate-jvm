@@ -6,6 +6,19 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.3.0] — 2026-06-11
+
+### Added
+- **`RestorableDigestUtil`** — incremental SHA-256 helper with restorable midstate support for checkpointed hashing.
+- **`FinalizeOutcome`** — explicit workflow finalization result model for content-integrity success, mismatch, and missing-declaration cases.
+- **Durable content-integrity checkpointing** — spool metadata now carries digest state so interrupted transfers can resume hashing from durable progress.
+
+### Changed
+- **`Workflow.resetTransfer`** — transfer reset API supports abort-and-restart handling for failed content-integrity validation.
+- **`magicroot-sbt-projectsettings`** — bumped to `2.2.0` and enables `LibProjectCryptoPlugin` so BouncyCastle lightweight API is inherited from the shared build plugin rather than declared locally.
+
+---
+
 ## [2.2.1] — 2026-06-03
 
 ### Changed
