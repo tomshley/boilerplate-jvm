@@ -35,11 +35,32 @@ trait Workflow[Device, Summary, Envelope, ReplyBinding] {
       lastAcceptedSeq: Long
   ): Future[FlushAcceptedChunk[ReplyBinding]]
 
+  /** Drain, verify content integrity, and close the transfer.
+    *
+    * The verification verdict is returned as a value on
+    * [[FlushFinalizationResult.outcome]] — see [[FinalizeOutcome]]. The
+    * caller's mismatch policy arrives as data via `mismatchDirective`:
+    * [[HashMismatchDirective.CloseAnyway]] (default — observation only,
+    * today's close semantics) or [[HashMismatchDirective.HoldOpen]]
+    * (mismatch leaves the session open and the spool intact for an
+    * explicit [[resetTransfer]] decision).
+    */
   def finalizeTransfer(
       entityId: String,
       binding: FlushConnectionBinding[ReplyBinding],
-      lastSpooledSeq: Long
+      lastSpooledSeq: Long,
+      mismatchDirective: HashMismatchDirective = HashMismatchDirective.CloseAnyway
   ): Future[FlushFinalizationResult[ReplyBinding]]
+
+  /** Reset an entity's transfer so the next one starts from sequence
+    * zero: abort the session entity and delete its spool. Reuses the
+    * reconnect-rebuild machinery — the producer's next `prepareTransfer`
+    * re-registers a fresh session instead of resume-skipping into the same
+    * failing finalize. Intended for the caller's
+    * [[HashMismatchDirective.HoldOpen]] arm; idempotent and safe to call
+    * on an already-aborted or already-clean entity.
+    */
+  def resetTransfer(entityId: String, reason: String): Future[Unit]
 }
 
 object Workflow {
