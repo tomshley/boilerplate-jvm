@@ -29,6 +29,20 @@ final case class KafkaKeyAvroConsumerEnvelope(key: String, avroValue: GenericRec
   def asAsync[T <: MarshallModel[T]](using d: Decoder[T], s: SchemaFor[T], ec: ExecutionContext): Future[T] =
     AvroMarshaller.fromRecordAsync[T](avroValue, ec)
 
+  /** Like [[as]], but first resolves an Avro field **alias** — a reader field
+   *  renamed via `@AvroAlias` whose record still carries the old field name —
+   *  onto the reader schema before decoding. Opt-in and backward compatible:
+   *  [[as]] is unchanged, and resolution runs only when an alias actually
+   *  applies (otherwise this is identical to [[as]]). Use on the read side of a
+   *  Confluent Schema Registry pipeline, where the generic deserializer hands
+   *  back writer-schema records. See [[AvroMarshaller.fromRecordResolving]]. */
+  def asResolving[T <: MarshallModel[T]](using Decoder[T], SchemaFor[T]): T =
+    AvroMarshaller.fromRecordResolving[T](avroValue)
+
+  /** Async [[asResolving]]. */
+  def asResolvingAsync[T <: MarshallModel[T]](using d: Decoder[T], s: SchemaFor[T], ec: ExecutionContext): Future[T] =
+    AvroMarshaller.fromRecordResolvingAsync[T](avroValue, ec)
+
 object KafkaKeyAvroConsumerEnvelope:
   def from(record: ConsumerRecord[String, GenericRecord]): KafkaKeyAvroConsumerEnvelope =
     require(record.key() != null, s"Null-keyed records are not supported (partition=${record.partition()}, offset=${record.offset()})")

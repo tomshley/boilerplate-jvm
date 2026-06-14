@@ -1,13 +1,16 @@
 package com.tomshley.boilerplate.jvm.marshalling
 
-import com.tomshley.boilerplate.jvm.kafka.util.KafkaKeyAvroMessageEnvelope
+import com.sksamuel.avro4s.AvroAlias
+import com.tomshley.boilerplate.jvm.kafka.util.{KafkaKeyAvroConsumerEnvelope, KafkaKeyAvroMessageEnvelope}
 import com.tomshley.boilerplate.jvm.marshalling.models.MarshallModel
 import org.apache.avro.Schema
+import org.apache.avro.generic.GenericData
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import scala.concurrent.ExecutionContext
+import scala.jdk.CollectionConverters.*
 
 // ── Test fixtures — MUST be top-level for avro4s macro derivation ──
 
@@ -22,11 +25,45 @@ case object INACTIVE extends TestStatus
 final case class TestAvroEventWithStatus(id: String, ts: Long, status: TestStatus)
     extends MarshallModel[TestAvroEventWithStatus]
 
+// Schema-evolution fixture: `accountId` was renamed from `userId` (carries the
+// alias, no Scala default), and `note` was added later (additive, with a Scala
+// default).
+final case class RenamedFieldEvent(
+    @AvroAlias("userId") accountId: String,
+    region: String,
+    note: String = "n/a",
+) extends MarshallModel[RenamedFieldEvent]
+
+// Nested-evolution fixture: the inner record's `accountId` was likewise renamed
+// from `userId`, exercising alias resolution below the top level.
+final case class InnerPayload(@AvroAlias("userId") accountId: String)
+final case class NestedRenameEvent(region: String, payload: InnerPayload)
+    extends MarshallModel[NestedRenameEvent]
+
 // ── Tests ──
 
 final class AvroMarshallerSpec extends AnyWordSpec with Matchers with ScalaFutures {
 
   given ExecutionContext = ExecutionContext.global
+
+  private def stringField(name: String): Schema.Field =
+    new Schema.Field(name, Schema.create(Schema.Type.STRING), null, null)
+
+  // Build a record schema borrowing the reader's name/namespace (so Avro matches
+  // it by full name) but with an explicit, older set of fields.
+  private def recordLike(template: Schema, fields: Schema.Field*): Schema =
+    Schema.createRecord(
+      template.getName, template.getDoc, template.getNamespace, false, fields.toList.asJava,
+    )
+
+  // Old writer schema: `accountId` was named `userId`, and `note` didn't exist
+  // yet (both required, no defaults).
+  private def legacyWriterSchema(readerSchema: Schema): Schema =
+    recordLike(readerSchema, stringField("userId"), stringField("region"))
+
+  // Additive-only writer schema: current field names, but `note` not yet present.
+  private def additiveWriterSchema(readerSchema: Schema): Schema =
+    recordLike(readerSchema, stringField("accountId"), stringField("region"))
 
   "AvroMarshaller" should {
     "toRecord and fromRecord round-trip" in {
@@ -66,6 +103,116 @@ final class AvroMarshallerSpec extends AnyWordSpec with Matchers with ScalaFutur
       val inactive = TestAvroEventWithStatus("b", 2L, INACTIVE)
       AvroMarshaller.fromRecord[TestAvroEventWithStatus](AvroMarshaller.toRecord(active)).status shouldBe ACTIVE
       AvroMarshaller.fromRecord[TestAvroEventWithStatus](AvroMarshaller.toRecord(inactive)).status shouldBe INACTIVE
+    }
+
+    "conformToReaderSchema resolves an aliased rename and fills reader defaults" in {
+      val readerSchema = AvroMarshaller.schema[RenamedFieldEvent]
+      val legacy = new GenericData.Record(legacyWriterSchema(readerSchema))
+      legacy.put("userId", "acct-1")
+      legacy.put("region", "us-1")
+
+      val conformed = AvroMarshaller.conformToReaderSchema(legacy, readerSchema)
+      conformed.get("accountId").toString shouldBe "acct-1"
+      conformed.get("region").toString shouldBe "us-1"
+      conformed.get("note").toString shouldBe "n/a"
+    }
+
+    "fromRecordResolving decodes a legacy (renamed) writer-schema record" in {
+      val readerSchema = AvroMarshaller.schema[RenamedFieldEvent]
+      val legacy = new GenericData.Record(legacyWriterSchema(readerSchema))
+      legacy.put("userId", "acct-2")
+      legacy.put("region", "us-2")
+
+      AvroMarshaller.fromRecordResolving[RenamedFieldEvent](legacy) shouldBe
+        RenamedFieldEvent("acct-2", "us-2", "n/a")
+    }
+
+    "fromRecordResolvingAsync decodes a legacy (renamed) writer-schema record" in {
+      val readerSchema = AvroMarshaller.schema[RenamedFieldEvent]
+      val legacy = new GenericData.Record(legacyWriterSchema(readerSchema))
+      legacy.put("userId", "acct-async")
+      legacy.put("region", "us-async")
+
+      AvroMarshaller
+        .fromRecordResolvingAsync[RenamedFieldEvent](legacy, summon[ExecutionContext])
+        .futureValue shouldBe RenamedFieldEvent("acct-async", "us-async", "n/a")
+    }
+
+    "fromRecordResolving resolves an aliased rename inside a nested record" in {
+      val readerSchema = AvroMarshaller.schema[NestedRenameEvent]
+      val legacyInner = recordLike(readerSchema.getField("payload").schema, stringField("userId"))
+      val legacyOuter = recordLike(
+        readerSchema,
+        stringField("region"),
+        new Schema.Field("payload", legacyInner, null, null),
+      )
+
+      val outer = new GenericData.Record(legacyOuter)
+      outer.put("region", "us-9")
+      val inner = new GenericData.Record(legacyInner)
+      inner.put("userId", "acct-9")
+      outer.put("payload", inner)
+
+      // Top-level field names are unchanged, so a shallow check would skip
+      // resolution and avro4s would throw on the non-null nested `accountId`.
+      AvroMarshaller.fromRecordResolving[NestedRenameEvent](outer) shouldBe
+        NestedRenameEvent("us-9", InnerPayload("acct-9"))
+    }
+
+    "conformToReaderSchema skips the round-trip for additive evolution (no rename)" in {
+      val readerSchema = AvroMarshaller.schema[RenamedFieldEvent]
+      val rec = new GenericData.Record(additiveWriterSchema(readerSchema))
+      rec.put("accountId", "acct-3")
+      rec.put("region", "us-3")
+
+      // identity — avro4s fills the missing defaulted field on decode
+      AvroMarshaller.conformToReaderSchema(rec, readerSchema) should be theSameInstanceAs rec
+      AvroMarshaller.fromRecordResolving[RenamedFieldEvent](rec) shouldBe
+        RenamedFieldEvent("acct-3", "us-3", "n/a")
+    }
+
+    "conformToReaderSchema is identity for a current-version record" in {
+      val readerSchema = AvroMarshaller.schema[RenamedFieldEvent]
+      val current = AvroMarshaller.toRecord(RenamedFieldEvent("acct-4", "us-4", "hello"))
+      AvroMarshaller.conformToReaderSchema(current, readerSchema) should be theSameInstanceAs current
+    }
+
+    "fromRecordResolving propagates Avro's error on a genuinely incompatible aliased record" in {
+      val readerSchema = AvroMarshaller.schema[RenamedFieldEvent]
+      // Writer carries the aliased field, but typed int where the reader wants
+      // string — int is not promotable to string, so resolution must fail loudly.
+      val incompatible = recordLike(
+        readerSchema,
+        new Schema.Field("userId", Schema.create(Schema.Type.INT), null, null),
+        stringField("region"),
+      )
+      val rec = new GenericData.Record(incompatible)
+      rec.put("userId", 42)
+      rec.put("region", "us-bad")
+
+      an [org.apache.avro.AvroTypeException] should be thrownBy
+        AvroMarshaller.fromRecordResolving[RenamedFieldEvent](rec)
+    }
+
+    "KafkaKeyAvroConsumerEnvelope.asResolving decodes a legacy (renamed) record" in {
+      val readerSchema = AvroMarshaller.schema[RenamedFieldEvent]
+      val legacy = new GenericData.Record(legacyWriterSchema(readerSchema))
+      legacy.put("userId", "acct-env")
+      legacy.put("region", "us-env")
+
+      KafkaKeyAvroConsumerEnvelope("k-1", legacy).asResolving[RenamedFieldEvent] shouldBe
+        RenamedFieldEvent("acct-env", "us-env", "n/a")
+    }
+
+    "KafkaKeyAvroConsumerEnvelope.asResolvingAsync decodes a legacy (renamed) record" in {
+      val readerSchema = AvroMarshaller.schema[RenamedFieldEvent]
+      val legacy = new GenericData.Record(legacyWriterSchema(readerSchema))
+      legacy.put("userId", "acct-env-async")
+      legacy.put("region", "us-env-async")
+
+      KafkaKeyAvroConsumerEnvelope("k-2", legacy)
+        .asResolvingAsync[RenamedFieldEvent]
+        .futureValue shouldBe RenamedFieldEvent("acct-env-async", "us-env-async", "n/a")
     }
   }
 }
