@@ -6,6 +6,18 @@ This project follows Semantic Versioning.
 
 ---
 
+## [Unreleased]
+
+---
+
+## [2.4.0] — 2026-06-13
+
+### Added
+- **`AvroMarshaller.fromRecordResolving` / `fromRecordResolvingAsync` / `conformToReaderSchema`** — opt-in reader-schema resolution for `GenericRecord`s materialized under a *writer* schema (e.g. from Confluent's generic `KafkaAvroDeserializer`, which does no reader-schema resolution). When a reader field was renamed via an Avro **alias** — at any nesting depth — and the incoming record still carries the old field name, the record is run through Avro's own `GenericDatumReader(writer, reader)` resolver before the avro4s decode; otherwise it is returned unchanged. Whether a rename is present is decided by Avro's own `Schema.applyAliases`, so detection is recursive (records, unions, arrays, maps) rather than limited to top-level fields. This closes a `NullPointerException` / `StreamThread`-crash class on the read side of Kafka Streams and Pekko consumers: avro4s' `SchemaFieldDecoder` decodes by *reader* field name and falls back to the field's Scala default when that name is absent, so a renamed field with no default decodes `null` and throws (and one *with* a default would silently take the default instead of the carried-over value). Scope stays narrow — ordinary additive evolution (a reader field the writer lacks, with a Scala default) is already handled by avro4s and skips the round-trip; only an aliased rename triggers resolution. Purely additive: `fromRecord`, `toRecord`, and all existing defaults are unchanged.
+- **`KafkaKeyAvroConsumerEnvelope.asResolving` / `asResolvingAsync`** — opt-in, backward-compatible consumer-boundary accessors that apply the alias resolution above before decoding, making it reachable from the primary Pekko/Kafka-Streams consumer path. The existing `as` / `asAsync` accessors are unchanged.
+
+---
+
 ## [2.3.0] — 2026-06-11
 
 ### Added
