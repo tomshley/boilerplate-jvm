@@ -13,7 +13,9 @@ import org.apache.pekko.kafka.ConsumerSettings
  *                       KafkaAvroDeserializer (strips wire format)   │
  *                                                                    ▼
  * MarshallModel[T]  ◀──  AvroMarshaller.fromRecord (avro4s)  ──  GenericRecord
- *                         (via KafkaKeyAvroConsumerEnvelope.as[T])
+ *                         (via KafkaKeyAvroConsumerEnvelope.as[T];
+ *                          use .asResolving[T] to additionally resolve aliased
+ *                          field renames against the reader schema)
  * }}}
  *
  * This object wires wire bytes → GenericRecord (via SchemaRegistrySerde).
