@@ -8,6 +8,10 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+---
+
+## [2.4.1] — 2026-06-14
+
 ### Fixed
 - **`AvroMarshaller` reader-schema resolution tolerates enum fields whose schema declares an out-of-range default.** During an aliased resolve, an enum-typed reader field that the writer omits is filled from the field's default; when a schema generator emits a default that is not one of the enum's symbols (for example avro4s 5.0.15 emits an empty-string default for a Scala 3 `enum` field), Avro's resolver raised a `NullPointerException`. The reader schema is now copied with each such default replaced by the enum's declared default — or its first symbol — so resolution fills the field instead of crashing. Schemas without an offending default are returned unchanged, so well-formed schemas keep identical behavior and incur no allocation. Only the reader-schema-resolution path is affected; `fromRecord`, `toRecord`, and non-aliased reads are untouched.
 
