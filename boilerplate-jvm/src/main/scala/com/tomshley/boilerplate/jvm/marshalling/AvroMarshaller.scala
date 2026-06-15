@@ -27,7 +27,9 @@ import org.apache.avro.io.{DecoderFactory, EncoderFactory}
 import models.MarshallModel
 
 import java.io.ByteArrayOutputStream
+import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
+import scala.jdk.CollectionConverters.*
 
 /** Avro serialization for [[MarshallModel]] instances via avro4s.
  *
@@ -193,7 +195,96 @@ trait AvroMarshaller {
     new GenericDatumWriter[GenericRecord](writerSchema).write(record, encoder)
     encoder.flush()
     val decoder = DecoderFactory.get().binaryDecoder(buffer.toByteArray, null)
-    new GenericDatumReader[GenericRecord](writerSchema, readerSchema).read(null.asInstanceOf[GenericRecord], decoder)
+    new GenericDatumReader[GenericRecord](writerSchema, withValidEnumDefaults(readerSchema))
+      .read(null.asInstanceOf[GenericRecord], decoder)
   }
+
+  /** Return `schema` unchanged unless it declares an enum-typed field whose
+   *  default is not one of that enum's symbols, in which case a copy is returned
+   *  with each such default replaced by a valid symbol.
+   *
+   *  A reader field that the writer omits is filled from the field's default
+   *  during schema resolution. If that default is not a legal enum symbol the
+   *  resolver fails: Avro materializes a default symbol the enum does not
+   *  contain, and the subsequent ordinal lookup throws (surfacing as a
+   *  `NullPointerException`). Some schema generators emit an empty-string
+   *  default for an enum field that has a programming-language default — for
+   *  example avro4s 5.0.15 does so for a Scala 3 `enum` field — which is not a
+   *  member of the enum and triggers exactly this failure. Substituting the
+   *  enum's declared default, or its first symbol when none is declared, lets
+   *  resolution fill the field instead of crashing; listing an
+   *  `UNKNOWN`/`UNSPECIFIED` sentinel first (a common Avro and Protobuf
+   *  convention) makes that fallback the natural "unset" value.
+   *
+   *  The walk covers records, unions, arrays and maps so a field at any depth is
+   *  handled, and it preserves names, types, aliases, properties, field order
+   *  and every already-valid default. A well-formed schema is returned as-is, so
+   *  the common case adds no allocation and flows through the resolver untouched.
+   */
+  private def withValidEnumDefaults(schema: Schema): Schema =
+    if hasOutOfRangeEnumDefault(schema, mutable.Set.empty) then
+      rewriteEnumDefaults(schema, mutable.Map.empty)
+    else schema
+
+  private def hasOutOfRangeEnumDefault(schema: Schema, visited: mutable.Set[String]): Boolean =
+    schema.getType match
+      case Schema.Type.RECORD =>
+        visited.add(schema.getFullName) && schema.getFields.asScala.exists { field =>
+          enumForDefault(field.schema).exists(enumDefaultNeedsRepair(field, _)) ||
+            hasOutOfRangeEnumDefault(field.schema, visited)
+        }
+      case Schema.Type.UNION => schema.getTypes.asScala.exists(hasOutOfRangeEnumDefault(_, visited))
+      case Schema.Type.ARRAY => hasOutOfRangeEnumDefault(schema.getElementType, visited)
+      case Schema.Type.MAP   => hasOutOfRangeEnumDefault(schema.getValueType, visited)
+      case _                 => false
+
+  private def rewriteEnumDefaults(schema: Schema, rebuilt: mutable.Map[String, Schema]): Schema =
+    schema.getType match
+      case Schema.Type.RECORD =>
+        rebuilt.getOrElse(
+          schema.getFullName, {
+            val record = Schema.createRecord(schema.getName, schema.getDoc, schema.getNamespace, schema.isError)
+            schema.getObjectProps.forEach((k, v) => record.addProp(k, v))
+            schema.getAliases.forEach(record.addAlias)
+            rebuilt.put(schema.getFullName, record)
+            record.setFields(schema.getFields.asScala.map(rewriteField(_, rebuilt)).asJava)
+            record
+          }
+        )
+      case Schema.Type.UNION => Schema.createUnion(schema.getTypes.asScala.map(rewriteEnumDefaults(_, rebuilt)).asJava)
+      case Schema.Type.ARRAY => Schema.createArray(rewriteEnumDefaults(schema.getElementType, rebuilt))
+      case Schema.Type.MAP   => Schema.createMap(rewriteEnumDefaults(schema.getValueType, rebuilt))
+      case _                 => schema
+
+  private def rewriteField(field: Schema.Field, rebuilt: mutable.Map[String, Schema]): Schema.Field =
+    val fieldSchema = rewriteEnumDefaults(field.schema, rebuilt)
+    enumForDefault(fieldSchema) match
+      case Some(enumSchema) if enumDefaultNeedsRepair(field, enumSchema) =>
+        val validDefault = Option(enumSchema.getEnumDefault).getOrElse(enumSchema.getEnumSymbols.get(0))
+        val replacement = new Schema.Field(field.name, fieldSchema, field.doc, validDefault, field.order)
+        field.getObjectProps.forEach((k, v) => replacement.addProp(k, v))
+        field.aliases.forEach(replacement.addAlias)
+        replacement
+      case _ =>
+        new Schema.Field(field, fieldSchema)
+
+  /** True when `field` carries a default that binds to `enumSchema` but is not
+   *  one of its symbols. */
+  private def enumDefaultNeedsRepair(field: Schema.Field, enumSchema: Schema): Boolean =
+    field.hasDefaultValue && !isEnumSymbol(enumSchema, field.defaultVal)
+
+  /** The enum a field default binds to: the field type itself when it is an
+   *  enum, or the first member of a union (Avro binds a field default to the
+   *  first union branch). `None` for any other shape. */
+  private def enumForDefault(schema: Schema): Option[Schema] =
+    schema.getType match
+      case Schema.Type.ENUM  => Some(schema)
+      case Schema.Type.UNION => schema.getTypes.asScala.headOption.filter(_.getType == Schema.Type.ENUM)
+      case _                 => None
+
+  private def isEnumSymbol(enumSchema: Schema, default: Any): Boolean =
+    default match
+      case s: String => enumSchema.getEnumSymbols.contains(s)
+      case _         => false
 }
 object AvroMarshaller extends AvroMarshaller

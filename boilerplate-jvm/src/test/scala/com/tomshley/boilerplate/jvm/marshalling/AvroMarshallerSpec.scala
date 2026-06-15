@@ -40,6 +40,20 @@ final case class InnerPayload(@AvroAlias("userId") accountId: String)
 final case class NestedRenameEvent(region: String, payload: InnerPayload)
     extends MarshallModel[NestedRenameEvent]
 
+// Enum-default fixture: a Scala 3 `enum` field with a default. avro4s 5.0.15
+// derives an illegal field-level `"default": ""` for `severity`. Paired with an
+// aliased rename (`accountId` from `userId`), a legacy writer that omits
+// `severity` makes Avro's resolver read that `""` default — previously a
+// NullPointerException. `UNSPECIFIED` is listed first, so it is the symbol
+// recovered when the out-of-range default is repaired.
+enum Severity:
+  case UNSPECIFIED, LOW, HIGH
+
+final case class EnumDefaultEvent(
+    @AvroAlias("userId") accountId: String,
+    severity: Severity = Severity.UNSPECIFIED,
+) extends MarshallModel[EnumDefaultEvent]
+
 // ── Tests ──
 
 final class AvroMarshallerSpec extends AnyWordSpec with Matchers with ScalaFutures {
@@ -213,6 +227,41 @@ final class AvroMarshallerSpec extends AnyWordSpec with Matchers with ScalaFutur
       KafkaKeyAvroConsumerEnvelope("k-2", legacy)
         .asResolvingAsync[RenamedFieldEvent]
         .futureValue shouldBe RenamedFieldEvent("acct-env-async", "us-env-async", "n/a")
+    }
+
+    "fromRecordResolving fills an omitted enum field through an aliased resolve (avro4s \"\" default)" in {
+      val readerSchema = AvroMarshaller.schema[EnumDefaultEvent]
+      // Legacy writer: `accountId` was still `userId`, and `severity` did not
+      // exist yet — exactly the shape that drives Avro's resolver to fill the
+      // enum field from its (illegal) reader default.
+      val legacy = new GenericData.Record(recordLike(readerSchema, stringField("userId")))
+      legacy.put("userId", "acct-enum")
+
+      AvroMarshaller.fromRecordResolving[EnumDefaultEvent](legacy) shouldBe
+        EnumDefaultEvent("acct-enum", Severity.UNSPECIFIED)
+    }
+
+    "fromRecordResolving preserves a carried enum value through an aliased resolve" in {
+      val readerSchema = AvroMarshaller.schema[EnumDefaultEvent]
+      val severitySchema = readerSchema.getField("severity").schema
+      val legacy = new GenericData.Record(
+        recordLike(
+          readerSchema,
+          stringField("userId"),
+          new Schema.Field("severity", severitySchema, null, null),
+        )
+      )
+      legacy.put("userId", "acct-keep")
+      legacy.put("severity", new GenericData.EnumSymbol(severitySchema, "HIGH"))
+
+      AvroMarshaller.fromRecordResolving[EnumDefaultEvent](legacy) shouldBe
+        EnumDefaultEvent("acct-keep", Severity.HIGH)
+    }
+
+    "the avro4s drift this guards against still exists (remove the repair when this fails)" in {
+      // Tripwire: when avro4s emits the default as a valid symbol (or omits the
+      // field default), this assertion fails — remove withValidEnumDefaults then.
+      AvroMarshaller.schema[EnumDefaultEvent].getField("severity").defaultVal() shouldBe ""
     }
   }
 }
