@@ -22,6 +22,8 @@ final class SchemaRegistryConfigSpec extends AnyWordSpec with Matchers {
       serde(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG) shouldBe "http://localhost:8081"
       serde(AbstractKafkaSchemaSerDeConfig.AUTO_REGISTER_SCHEMAS) shouldBe "false"
       serde(AbstractKafkaSchemaSerDeConfig.USE_LATEST_VERSION) shouldBe "true"
+      serde.contains("key.subject.name.strategy") shouldBe false
+      serde.contains("value.subject.name.strategy") shouldBe false
       serde.contains(AbstractKafkaSchemaSerDeConfig.BASIC_AUTH_CREDENTIALS_SOURCE) shouldBe false
     }
 
@@ -44,6 +46,16 @@ final class SchemaRegistryConfigSpec extends AnyWordSpec with Matchers {
       val serde = cfg.toSerializerConfig
       serde(AbstractKafkaSchemaSerDeConfig.AUTO_REGISTER_SCHEMAS) shouldBe "true"
       serde(AbstractKafkaSchemaSerDeConfig.USE_LATEST_VERSION) shouldBe "false"
+    }
+
+    "emit key and value subject-name strategy only when explicitly configured" in {
+      val cfg = SchemaRegistryConfig(
+        url = "http://localhost:8081",
+        subjectNameStrategy = Some(SchemaRegistryConfig.SubjectNameStrategy.RecordNameStrategy)
+      )
+      val serde = cfg.toSerializerConfig
+      serde("key.subject.name.strategy") shouldBe SchemaRegistryConfig.SubjectNameStrategy.RecordNameStrategy
+      serde("value.subject.name.strategy") shouldBe SchemaRegistryConfig.SubjectNameStrategy.RecordNameStrategy
     }
 
     "emit auth and override flags together without interference" in {
@@ -85,6 +97,8 @@ final class SchemaRegistryConfigSpec extends AnyWordSpec with Matchers {
       // even when the config carries non-default values for them.
       client.contains(AbstractKafkaSchemaSerDeConfig.AUTO_REGISTER_SCHEMAS) shouldBe false
       client.contains(AbstractKafkaSchemaSerDeConfig.USE_LATEST_VERSION) shouldBe false
+      client.contains("key.subject.name.strategy") shouldBe false
+      client.contains("value.subject.name.strategy") shouldBe false
     }
   }
 
@@ -131,6 +145,19 @@ final class SchemaRegistryConfigSpec extends AnyWordSpec with Matchers {
       val cfg = SchemaRegistryConfig.fromConfig(config)
       cfg.autoRegisterSchemas shouldBe true
       cfg.useLatestVersion shouldBe false
+    }
+
+    "read subject-name-strategy override from HOCON" in {
+      val config = ConfigFactory.parseString(
+        s"""
+          |schema-registry {
+          |  url = "http://localhost:8081"
+          |  subject-name-strategy = "${SchemaRegistryConfig.SubjectNameStrategy.RecordNameStrategy}"
+          |}
+          |""".stripMargin
+      )
+      val cfg = SchemaRegistryConfig.fromConfig(config)
+      cfg.subjectNameStrategy shouldBe Some(SchemaRegistryConfig.SubjectNameStrategy.RecordNameStrategy)
     }
 
     "require api-key and api-secret to be set together or omitted together" in {
