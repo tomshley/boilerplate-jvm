@@ -126,4 +126,26 @@ final class SchemaRegistrySerdeSpec extends AnyWordSpec with Matchers with Befor
       finally serializer.close()
     }
   }
+
+  "SchemaRegistrySerde.serializer with RecordNameStrategy" should {
+
+    "register the record full name rather than the topic subject" in {
+      val serializer = SchemaRegistrySerde.serializer(
+        SchemaRegistryConfig(
+          url = mockUrl,
+          autoRegisterSchemas = true,
+          useLatestVersion = false,
+          subjectNameStrategy = Some(SchemaRegistryConfig.SubjectNameStrategy.RecordNameStrategy),
+        )
+      )
+      try
+        serializer.serialize(topic, newRecord("e5", "fifth"))(0) shouldBe 0x00.toByte
+
+        val client = MockSchemaRegistry.getClientForScope(scope)
+        val registered = client.getAllSubjects
+        registered should contain("serde.spec.Event")
+        registered should not contain subject
+      finally serializer.close()
+    }
+  }
 }
