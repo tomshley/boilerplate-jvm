@@ -173,14 +173,15 @@ final class AvroMarshallerSpec extends AnyWordSpec with Matchers with ScalaFutur
         NestedRenameEvent("us-9", InnerPayload("acct-9"))
     }
 
-    "conformToReaderSchema skips the round-trip for additive evolution (no rename)" in {
+    "conformToReaderSchema resolves additive evolution through Avro reader defaults" in {
       val readerSchema = AvroMarshaller.schema[RenamedFieldEvent]
       val rec = new GenericData.Record(additiveWriterSchema(readerSchema))
       rec.put("accountId", "acct-3")
       rec.put("region", "us-3")
 
-      // identity — avro4s fills the missing defaulted field on decode
-      AvroMarshaller.conformToReaderSchema(rec, readerSchema) should be theSameInstanceAs rec
+      val conformed = AvroMarshaller.conformToReaderSchema(rec, readerSchema)
+      conformed should not be theSameInstanceAs(rec)
+      conformed.get("note").toString shouldBe "n/a"
       AvroMarshaller.fromRecordResolving[RenamedFieldEvent](rec) shouldBe
         RenamedFieldEvent("acct-3", "us-3", "n/a")
     }
