@@ -34,8 +34,9 @@ import io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig
  *
  * '''Config surfaces.''' Two projections of this config are emitted:
  *   - [[toSerializerConfig]] — full set including the
- *     `auto.register.schemas` / `use.latest.version` gate flags. Consumed
- *     by `KafkaAvroSerializer.configure`.
+ *     `auto.register.schemas` / `use.latest.version` gate flags and any
+ *     subject-name strategy override. Consumed by
+ *     `KafkaAvroSerializer.configure`.
  *   - [[toClientConfig]] — URL + auth only. Consumed by
  *     `KafkaAvroDeserializer.configure` and
  *     `CachedSchemaRegistryClient`, neither of which honour the
@@ -49,7 +50,8 @@ final case class SchemaRegistryConfig(
     url: String,
     auth: Option[SchemaRegistryConfig.BasicAuth] = None,
     autoRegisterSchemas: Boolean = SchemaRegistryConfig.DefaultAutoRegisterSchemas,
-    useLatestVersion: Boolean = SchemaRegistryConfig.DefaultUseLatestVersion
+    useLatestVersion: Boolean = SchemaRegistryConfig.DefaultUseLatestVersion,
+    subjectNameStrategy: Option[String] = None
 ):
 
   /** URL + auth only — safe input for every Confluent SR surface (client,
@@ -69,14 +71,21 @@ final case class SchemaRegistryConfig(
     }
 
   /** Full serializer config — URL + auth + `auto.register.schemas` +
-   *  `use.latest.version`. Consumed by `KafkaAvroSerializer.configure`.
+   *  `use.latest.version` + optional subject-name strategy. Consumed by
+   *  `KafkaAvroSerializer.configure`.
    *  Downstream callers should prefer this over [[toClientConfig]] only
    *  when the call site is the serializer itself. */
   def toSerializerConfig: Map[String, Any] =
-    toClientConfig ++ Map[String, Any](
+    val base = toClientConfig ++ Map[String, Any](
       AbstractKafkaSchemaSerDeConfig.AUTO_REGISTER_SCHEMAS -> autoRegisterSchemas.toString,
       AbstractKafkaSchemaSerDeConfig.USE_LATEST_VERSION -> useLatestVersion.toString
     )
+    subjectNameStrategy.fold(base) { strategy =>
+      base ++ Map[String, Any](
+        AbstractKafkaSchemaSerDeConfig.KEY_SUBJECT_NAME_STRATEGY -> strategy,
+        AbstractKafkaSchemaSerDeConfig.VALUE_SUBJECT_NAME_STRATEGY -> strategy
+      )
+    }
 
   /** @deprecated since 2.1.0 — alias for [[toSerializerConfig]]. Kept for
    *  source compatibility with 2.0.x call sites; will be removed in 3.0.0.
@@ -110,6 +119,11 @@ object SchemaRegistryConfig:
    *  `true`. */
   val DefaultUseLatestVersion: Boolean = true
 
+  object SubjectNameStrategy:
+    val TopicNameStrategy: String = "io.confluent.kafka.serializers.subject.TopicNameStrategy"
+    val RecordNameStrategy: String = "io.confluent.kafka.serializers.subject.RecordNameStrategy"
+    val TopicRecordNameStrategy: String = "io.confluent.kafka.serializers.subject.TopicRecordNameStrategy"
+
   private def optionalString(config: Config, path: String): Option[String] =
     Option.when(config.hasPath(path))(config.getString(path)).map(_.trim).filter(_.nonEmpty)
 
@@ -119,9 +133,10 @@ object SchemaRegistryConfig:
   /** Read configuration from a Typesafe Config rooted at `schema-registry`.
    *
    *  '''HOCON key convention.''' Keys use Lightbend/Pekko dashed style
-   *  (`auto-register-schemas`, `use-latest-version`, `api-key`,
-   *  `api-secret`, `url`) — NOT the Confluent dot-delimited client
-   *  property names (`auto.register.schemas`). HOCON interprets
+   *  (`auto-register-schemas`, `use-latest-version`,
+   *  `subject-name-strategy`, `api-key`, `api-secret`, `url`) — NOT the
+   *  Confluent dot-delimited client property names
+   *  (`auto.register.schemas`). HOCON interprets
    *  `a.b.c = x` as the nested object `{ a { b { c = x } } }`, so pasting
    *  Confluent's native key names under `schema-registry { … }` will
    *  silently create nested objects instead of leaf overrides — the
@@ -144,5 +159,6 @@ object SchemaRegistryConfig:
       url = sr.getString("url"),
       auth = auth,
       autoRegisterSchemas = optionalBoolean(sr, "auto-register-schemas").getOrElse(DefaultAutoRegisterSchemas),
-      useLatestVersion = optionalBoolean(sr, "use-latest-version").getOrElse(DefaultUseLatestVersion)
+      useLatestVersion = optionalBoolean(sr, "use-latest-version").getOrElse(DefaultUseLatestVersion),
+      subjectNameStrategy = optionalString(sr, "subject-name-strategy")
     )
