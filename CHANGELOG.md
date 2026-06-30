@@ -8,6 +8,10 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+---
+
+## [2.5.0] — 2026-06-30
+
 ### Added
 - **`StreamsAvroSerde[T <: MarshallModel[T]]`** promoted into `boilerplate-jvm` as the shared Kafka Streams serde for Schema Registry-framed Avro records, backed by `SchemaRegistrySerde` and `AvroMarshaller.fromRecordResolving`.
 - **`SchemaRegistryConfig.subjectNameStrategy`** adds an optional Confluent subject naming strategy override, including constants for TopicNameStrategy, RecordNameStrategy, and TopicRecordNameStrategy.
