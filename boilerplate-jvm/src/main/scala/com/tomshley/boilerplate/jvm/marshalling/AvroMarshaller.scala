@@ -106,7 +106,7 @@ trait AvroMarshaller {
 
   /** Like [[fromRecord]], but first conforms a record materialized under its
    *  *writer* schema onto the avro4s *reader* schema (`schema[T]`) — applied
-   *  only when an Avro field **alias** actually resolves a renamed field (see
+   *  whenever the materialized writer schema differs from the reader schema (see
    *  [[conformToReaderSchema]]). Use this on the read side of a Confluent
    *  Schema Registry pipeline, where the generic `KafkaAvroDeserializer`
    *  hands back writer-schema records and does no reader-schema resolution.
@@ -131,9 +131,7 @@ trait AvroMarshaller {
   }
 
   /** Resolve a [[GenericRecord]] materialized under its *writer* schema onto
-   *  `readerSchema` — but only when an Avro field **alias** actually applies,
-   *  i.e. a reader field was renamed and this record (written under the older
-   *  name) still carries that name.
+   *  `readerSchema` whenever the writer and reader schemas differ.
    *
    *  Why this is needed (and easy to get wrong):
    *    - Confluent's generic `KafkaAvroDeserializer` materializes records under
@@ -147,23 +145,19 @@ trait AvroMarshaller {
    *      `StreamThread`); one with a default silently takes the default instead
    *      of the carried-over value.
    *
-   *  Scope is deliberately narrow. Ordinary backward-compatible evolution (a
-   *  reader field the writer lacks, with no alias) is already handled by avro4s
-   *  via the case class's Scala default, so those records skip the round-trip.
-   *  Only an aliased rename — at any nesting depth — forces a resolve,
-   *  delegated to Avro's own [[GenericDatumReader]] resolver rather than
-   *  hand-mapping aliases: it handles nested records, unions, enums and reader
-   *  defaults in one pass.
+   *  The work is delegated to Avro's own [[GenericDatumReader]] resolver rather
+   *  than hand-mapping fields: it handles nested records, unions, enums, aliases
+   *  and reader defaults in one pass.
    *
    *  On a genuinely incompatible record the underlying Avro exception
    *  propagates; the caller owns the supervision policy (fail-fast vs DLQ).
    *
-   *  Kept deliberately stateless: the alias decision ([[aliasResolutionRequired]],
-   *  via `Schema.applyAliases`) and Avro's resolver are recomputed per record
-   *  rather than memoized. A cache keyed on writer-schema identity would be
-   *  faster on a hot topic replaying many legacy records, but it would add a
-   *  shared, concurrent (multiple `StreamThread`s hit it), bounded cache to an
-   *  otherwise stateless object — more moving parts to get right and test.
+   *  Kept deliberately stateless: the schema comparison and Avro's resolver are
+   *  recomputed per record rather than memoized. A cache keyed on writer-schema
+   *  identity would be faster on a hot topic replaying many legacy records, but
+   *  it would add a shared, concurrent (multiple `StreamThread`s hit it),
+   *  bounded cache to an otherwise stateless object — more moving parts to get
+   *  right and test.
    *  Simple on purpose; add the cache only if profiling shows this path is hot.
    *
    * @param record GenericRecord (carrying its writer schema)
@@ -172,22 +166,10 @@ trait AvroMarshaller {
    */
   final def conformToReaderSchema(record: GenericRecord, readerSchema: Schema): GenericRecord = {
     val writerSchema = record.getSchema
-    if (aliasResolutionRequired(writerSchema, readerSchema))
+    if (!writerSchema.equals(readerSchema))
       resolveViaAvro(record, writerSchema, readerSchema)
     else record
   }
-
-  /** True iff applying the reader's aliases to the writer schema actually
-   *  renames a field somewhere in the tree — the one case avro4s cannot decode
-   *  unaided (the renamed field is absent under its reader name, so avro4s
-   *  falls back to the Scala default, or fails when there is none). Detection
-   *  is delegated to Avro's own `Schema.applyAliases`, which rewrites the
-   *  writer schema using the reader's aliases recursively (records, unions,
-   *  arrays, maps); resolution is required precisely when that rewrite changes
-   *  the schema. When the reader declares no aliases, `applyAliases` returns
-   *  the writer schema by reference and the comparison short-circuits. */
-  private def aliasResolutionRequired(writerSchema: Schema, readerSchema: Schema): Boolean =
-    !Schema.applyAliases(writerSchema, readerSchema).equals(writerSchema)
 
   private def resolveViaAvro(record: GenericRecord, writerSchema: Schema, readerSchema: Schema): GenericRecord = {
     val buffer = new ByteArrayOutputStream()
