@@ -48,6 +48,11 @@ object TcpServerBoilerplate
 
     override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
       new GraphStageLogic(shape) with InHandler with OutHandler {
+        // GraphStageLogic state is the SANCTIONED stream-context confinement:
+        // Pekko serializes every callback of one logic instance onto a single
+        // execution island, so these vars are never shared across threads —
+        // the framework-idiomatic equivalent of statefulMap's fold state, not
+        // unconfined mutability (no @volatile/atomics needed or allowed).
         private var lastState: S = initialState
         private var failureCause: Option[Throwable] = None
 
