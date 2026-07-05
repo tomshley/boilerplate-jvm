@@ -1,7 +1,7 @@
 package com.tomshley.boilerplate.jvm.kafka.util
 
 import com.sksamuel.avro4s.{Decoder, Encoder, SchemaFor}
-import com.tomshley.boilerplate.jvm.marshalling.AvroMarshaller
+import com.tomshley.boilerplate.jvm.marshalling.AvroCodec
 import com.tomshley.boilerplate.jvm.marshalling.models.MarshallModel
 import org.apache.avro.generic.GenericRecord
 import org.apache.kafka.common.serialization.{Deserializer, Serde, Serdes, Serializer}
@@ -21,13 +21,18 @@ object StreamsAvroSerde:
 /** Kafka Streams [[Serde]] for Schema Registry-framed Avro VALUES modeled as
  * avro4s [[MarshallModel]] case classes.
  *
- * Bridges the avro4s case class ↔ `GenericRecord` layer ([[AvroMarshaller]])
+ * Bridges the avro4s case class ↔ `GenericRecord` layer ([[AvroCodec]])
  * to Confluent's wire format ([[SchemaRegistrySerde]]): on serialize a value
  * becomes a `GenericRecord` then Confluent bytes; on deserialize the bytes
- * become a `GenericRecord` that [[AvroMarshaller.fromRecordResolving]] conforms
+ * become a `GenericRecord` that [[AvroCodec.fromRecordResolving]] conforms
  * onto the reader schema — so a renamed or otherwise evolved writer schema
  * still decodes — before avro4s materialises the case class. `null` values
  * round-trip as `null` (Kafka tombstones).
+ *
+ * The avro4s encoder/decoder trees are derived ONCE, at serde construction
+ * ([[AvroCodec]]) — never per record. Writer-schema dynamism is unaffected:
+ * resolution still consults each record's carried writer schema (see
+ * [[AvroCodec.fromRecordResolving]]).
  *
  * VALUE-ONLY: the underlying Confluent serdes are configured with
  * `isKey = false`, so the subject-name strategy resolves the value subject and
@@ -43,6 +48,8 @@ final class StreamsAvroSerde[T <: MarshallModel[T]](schemaRegistryConfig: Schema
     (using Encoder[T], Decoder[T], SchemaFor[T])
     extends Serde[T]:
 
+  private val codec: AvroCodec[T] = AvroCodec[T]
+
   private val serializerDelegate: Serializer[GenericRecord] =
     SchemaRegistrySerde.serializer(schemaRegistryConfig)
 
@@ -53,7 +60,7 @@ final class StreamsAvroSerde[T <: MarshallModel[T]](schemaRegistryConfig: Schema
     new Serializer[T]:
       override def serialize(topic: String, data: T): Array[Byte] =
         Option(data)
-          .map(AvroMarshaller.toRecord[T])
+          .map(codec.toRecord)
           .map(record => serializerDelegate.serialize(topic, record))
           .orNull
 
@@ -65,7 +72,7 @@ final class StreamsAvroSerde[T <: MarshallModel[T]](schemaRegistryConfig: Schema
       override def deserialize(topic: String, data: Array[Byte]): T =
         Option(data)
           .map(bytes => deserializerDelegate.deserialize(topic, bytes))
-          .map(record => AvroMarshaller.fromRecordResolving[T](record))
+          .map(codec.fromRecordResolving)
           .orNull.asInstanceOf[T]
 
       override def close(): Unit =

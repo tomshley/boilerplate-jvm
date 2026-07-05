@@ -51,6 +51,13 @@ import scala.jdk.CollectionConverters.*
  *  val record = AvroMarshaller.toRecord(DeviceEvent("d1", ONLINE))
  *  val back   = AvroMarshaller.fromRecord[DeviceEvent](record)
  *  }}}
+ *
+ *  Call-scoped by design: each call re-derives the avro4s encoder/decoder
+ *  tree, which keeps this API dependency-free and safe anywhere, but is
+ *  measurably expensive when invoked once per record. Per-record paths
+ *  (Kafka Streams serdes, consumer loops) should derive once via
+ *  [[AvroCodec]] and reuse it — same semantics, derivation paid at wiring
+ *  time instead of per call.
  */
 trait AvroMarshaller {
 
@@ -159,6 +166,11 @@ trait AvroMarshaller {
    *  bounded cache to an otherwise stateless object — more moving parts to get
    *  right and test.
    *  Simple on purpose; add the cache only if profiling shows this path is hot.
+   *  (Profiled 2026-07: on a replay-heavy Kafka Streams workload the heat was
+   *  in per-call avro4s re-derivation — addressed by [[AvroCodec]], which
+   *  caches only the compile-time reader derivation — not here. This path runs
+   *  only on writer/reader mismatch and stays uncached: writer schemas are
+   *  runtime facts.)
    *
    * @param record GenericRecord (carrying its writer schema)
    * @param readerSchema Schema (target reader schema, e.g. `schema[T]`)
