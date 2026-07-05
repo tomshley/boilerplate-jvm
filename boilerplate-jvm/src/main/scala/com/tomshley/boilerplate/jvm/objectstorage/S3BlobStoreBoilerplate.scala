@@ -68,7 +68,6 @@ class S3BlobStoreBoilerplate(
     clientBuilder.build()
   }
 
-  private val closed = new java.util.concurrent.atomic.AtomicBoolean(false)
 
   // Auto-register cleanup on construction
   CoordinatedShutdown(system.classicSystem).addTask(
@@ -254,18 +253,20 @@ class S3BlobStoreBoilerplate(
       }
   }
 
-  override def close(): Future[Done] = {
-    if (closed.compareAndSet(false, true)) {
-      Future {
-        scala.concurrent.blocking {
-          s3Client.close()
-        }
-        Done
+  /** Idempotent: the close is memoized as a single lazy future (Scala lazy
+   *  vals are thread-safe by language guarantee — no atomics), so EVERY
+   *  caller — CoordinatedShutdown or manual — observes the completion of the
+   *  one real close, never a premature `Done` while the close is in flight.
+   */
+  private lazy val closeOnce: Future[Done] =
+    Future {
+      scala.concurrent.blocking {
+        s3Client.close()
       }
-    } else {
-      Future.successful(Done)
+      Done
     }
-  }
+
+  override def close(): Future[Done] = closeOnce
 }
 
 object S3BlobStoreBoilerplate {

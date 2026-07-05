@@ -8,6 +8,15 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+- **`AvroCodec[T <: MarshallModel[T]]`** — pre-derived avro4s codec for per-record paths. avro4s's call-scoped surface (`ToRecord`/`FromRecord`, wrapped by `AvroMarshaller.toRecord`/`fromRecord`) re-derives the full encoder/decoder tree on every call (`RecordDecoder.decode` rebuilds one `SchemaFieldDecoder` per field, each with a linear field scan, before touching the record); profiling a replay-heavy Kafka Streams workload showed that re-derivation dominating `StreamThread` CPU. An `AvroCodec` derives once at construction and reuses the compiled encode/decode functions. Only the reader-side derivation is cached — it is a pure function of the compile-time type; writer schemas remain per-record runtime facts, resolved dynamically via `AvroMarshaller.conformToReaderSchema`, so schema-evolution behavior is identical to the call-scoped path. Immutable and safe to share across threads.
+
+### Changed
+- **`StreamsAvroSerde` derives its avro4s codec once at serde construction** (via `AvroCodec`) instead of re-deriving per record on serialize/deserialize. No contract change: cached `serializer()`/`deserializer()` instances, `null` tombstone round-trip, and per-record writer-schema resolution are all preserved and now regression-tested.
+
+### Fixed
+- **`S3BlobStoreBoilerplate.close()` no longer resolves prematurely for concurrent callers.** The `AtomicBoolean` CAS guard (which handed the second caller an immediate `Done` while the first close was still in flight) is replaced with a memoized lazy close future: every caller — CoordinatedShutdown or manual — observes the completion of the one real close. Also removes the last `java.util.concurrent.atomic` usage from app code per house standards.
+
 ---
 
 ## [2.5.0] — 2026-06-30
