@@ -8,6 +8,10 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+---
+
+## [2.6.0] — 2026-07-05
+
 ### Added
 - **`AvroCodec[T <: MarshallModel[T]]`** — pre-derived avro4s codec for per-record paths. avro4s's call-scoped surface (`ToRecord`/`FromRecord`, wrapped by `AvroMarshaller.toRecord`/`fromRecord`) re-derives the full encoder/decoder tree on every call (`RecordDecoder.decode` rebuilds one `SchemaFieldDecoder` per field, each with a linear field scan, before touching the record); profiling a replay-heavy Kafka Streams workload showed that re-derivation dominating `StreamThread` CPU. An `AvroCodec` derives once at construction and reuses the compiled encode/decode functions. Only the reader-side derivation is cached — it is a pure function of the compile-time type; writer schemas remain per-record runtime facts, resolved dynamically via `AvroMarshaller.conformToReaderSchema`, so schema-evolution behavior is identical to the call-scoped path. Immutable and safe to share across threads.
 
