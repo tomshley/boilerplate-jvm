@@ -39,6 +39,57 @@ final class StreamsAvroSerdeSpec extends AnyWordSpec with Matchers:
         MockSchemaRegistry.dropScope(scope)
     }
 
+    "return cached serializer and deserializer instances (per-record hot path must not allocate)" in {
+      val scope = s"streams-avro-serde-${UUID.randomUUID()}"
+      val cfg = SchemaRegistryConfig(
+        url = s"mock://$scope",
+        autoRegisterSchemas = true,
+        useLatestVersion = false,
+      )
+      val serde = StreamsAvroSerde[SerdeEvent](cfg)
+      try
+        serde.serializer() should be theSameInstanceAs serde.serializer()
+        serde.deserializer() should be theSameInstanceAs serde.deserializer()
+      finally
+        serde.close()
+        MockSchemaRegistry.dropScope(scope)
+    }
+
+    "round-trip null as null (Kafka tombstones)" in {
+      val scope = s"streams-avro-serde-${UUID.randomUUID()}"
+      val cfg = SchemaRegistryConfig(
+        url = s"mock://$scope",
+        autoRegisterSchemas = true,
+        useLatestVersion = false,
+      )
+      val serde = StreamsAvroSerde[SerdeEvent](cfg)
+      try
+        serde.serializer().serialize("serde-events", null.asInstanceOf[SerdeEvent]) shouldBe null
+        serde.deserializer().deserialize("serde-events", null) shouldBe null
+      finally
+        serde.close()
+        MockSchemaRegistry.dropScope(scope)
+    }
+
+    "reuse the construction-time derivation across a stream of records" in {
+      val scope = s"streams-avro-serde-${UUID.randomUUID()}"
+      val cfg = SchemaRegistryConfig(
+        url = s"mock://$scope",
+        autoRegisterSchemas = true,
+        useLatestVersion = false,
+      )
+      val serde = StreamsAvroSerde[SerdeEvent](cfg)
+      try
+        (1 to 50).foreach { i =>
+          val event = SerdeEvent(s"c-$i", s"payload-$i")
+          val bytes = serde.serializer().serialize("serde-events", event)
+          serde.deserializer().deserialize("serde-events", bytes) shouldBe event
+        }
+      finally
+        serde.close()
+        MockSchemaRegistry.dropScope(scope)
+    }
+
     "resolve a legacy writer schema onto the reader contract" in {
       val scope = s"streams-avro-serde-${UUID.randomUUID()}"
       val cfg = SchemaRegistryConfig(
