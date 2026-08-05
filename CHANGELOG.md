@@ -6,7 +6,7 @@ This project follows Semantic Versioning.
 
 ---
 
-## [Unreleased]
+## [2.7.0] — 2026-08-05
 
 ### Added
 - **`security.tokens` — compact-MAC tokens, keyrings, and signed expiring values.** A small, flat set of pure functions over immutable data for the recurring "opaque, short, authenticated, expiring identifier" problem:
