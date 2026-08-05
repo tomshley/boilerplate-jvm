@@ -8,6 +8,24 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+- **`security.tokens` — compact-MAC tokens, keyrings, and signed expiring values.** A small, flat set of pure functions over immutable data for the recurring "opaque, short, authenticated, expiring identifier" problem:
+  - **`Keyring`** — immutable slots (`kid` 0..31) of hex key material, functional rotation (`withKey`/`retire`), active slot = highest occupied. Key bytes never leave the package: there is no accessor that returns them, and `toString` prints slot ids only. Internal `SecretBytes` holds the material with no serialization hooks (deliberately not `MintedPimpedBytes`, whose `@JsonValue` would let Jackson serialize keys), constant-time content equality, and a length-only `hashCode`.
+  - **`CompactMacToken`** — fixed-length tokens: `1` header byte (version:3 | kid:5) + payload + `2`-byte big-endian expiry (days since epoch) + `MAC96`, wire form canonical unpadded url-safe base64. `mint`/`verify` take a keyring and a `TokenProfile`; `verify` is total and returns `Either[RejectionReason, VerifiedToken]`, so decode ladders compose. Checks are ordered shape → version → key id → authenticity → expiry, and expiry is judged only on a token already proven authentic.
+  - **`ExpiringSignedValue`** — the same discipline for variable-length values (`value` + authenticated expiry instant), with a format label mixed into the MAC domain so a token of one family can never verify as the other even at identical lengths.
+  - **`TokenProfile`** — the per-family parameters (domain separator, version, payload length, expiry grace). The library ships no defaults: separator, version, and grace are the caller's decisions, and families sharing a keyring must use distinct separators.
+  - **`RejectionReason`** — `Malformed`, `UnknownVersion`, `UnknownKey`, `SignatureMismatch`, `Expired`, kept deliberately distinct: a tampered token and a stale one mean different things operationally. Nothing beyond these reasons is observable about a failure.
+  - **`TokenShapes`** — `isUuidShaped` / `isDecimalUint32` extension methods for ladders spanning identifier generations. The ladder itself (which shapes are admitted, in what order) belongs to the caller.
+  - MAC verification is `MessageDigest.isEqual` and is sealed inside the package: computed MACs never escape, so no caller can hand-compare one. Base64 decoding is strict AND canonical — padding, the standard alphabet, wrong lengths, and non-canonical trailing bits are all rejected, so an authenticated value has exactly one wire form.
+- **`reqreply.SignedValueDirectives`** — signing and verification directives on the authenticated scheme, keyed from configuration (`tomshley-boilerplate-reqreply-signing.keys.<slot>`, `…signing.grace`), plus a non-directive `verifiedValue` for use outside routes. No default key material ships: an unconfigured deployment signs nothing and verifies nothing, rather than silently authenticating with a published salt.
+
+### Changed
+- **`ConfigKeyUtil.config`'s context-parameter default is explicitly typed** (`Option.empty[ActorSystem[?]]`). The bare `Option.empty` inferred `Option[A]` and failed the variance check against `Option[ActorSystem[?]]` depending on which sources were in the compile batch.
+- **`reqreply` rides on `security.tokens.ExpiringSignedValue` end to end.** `Idempotency`, `IdempotencyDirectives`, and the view/form-field models (`IdempotentView`/`IdempotentFormField`, `ExpiringSuccessPathView`/`ExpiringSuccessPathFormField`, `RedirectPathView`/`RedirectPathFormField`) now mint and verify through `SignedValueDirectives`. Wire-breaking: values issued under the old scheme do not verify, and signing requires configured key material (`tomshley-boilerplate-reqreply-signing.keys.<slot>`).
+
+### Removed
+- **`reqreply.models.ExpiringValue`, `reqreply.ExpiringValueDirectives`, and `utils.InsecureSaltedEncryptionUtil`** — deleted outright rather than deprecated. Their scheme was AES-ECB with a static config salt — reversible, unauthenticated, and its `encryptBase64Hmac`/`decryptBase64Hmac` computed no MAC at all despite the names. The shipped `tomshley-boilerplate-reqreply-idempotency.insecure-salt` default key is gone with them. `security.tokens` (`ExpiringSignedValue` / `CompactMacToken`) and `SignedValueDirectives` are the replacements.
+
 ---
 
 ## [2.6.0] — 2026-07-05
@@ -298,7 +316,8 @@ This project follows Semantic Versioning.
 
 ### Notes
 - magicroot `2.0.2` artifact is yanked (missing r2dbc-postgresql driver
-  broke downstream ingress; see magicroot 2.0.3 CHANGELOG).
+  broke downstream services that consume `pekkoPersistenceLibraries`; see
+  magicroot 2.0.3 CHANGELOG).
 - No source code changes in this release — single-line plugin pin bump.
 
 ---

@@ -5,7 +5,7 @@ import com.typesafe.config.ConfigFactory
 import org.apache.pekko.actor.typed.ActorSystem
 
 trait ConfigKeyUtil {
-  def config(using systemOption: Option[ActorSystem[?]] = Option.empty): Config = {
+  def config(using systemOption: Option[ActorSystem[?]] = Option.empty[ActorSystem[?]]): Config = {
     systemOption match
       case Some(value) => value.settings.config
       case None =>

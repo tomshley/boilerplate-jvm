@@ -1,6 +1,6 @@
 package com.tomshley.boilerplate.jvm.reqreply
 
-import com.tomshley.boilerplate.jvm.reqreply.models.ExpiringValue
+import com.tomshley.boilerplate.jvm.security.tokens.ExpiringSignedValue
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, EntityRef}
 import org.apache.pekko.util.Timeout
@@ -22,21 +22,21 @@ class Idempotency(system: ActorSystem[?]) {
         .getDuration("tomshley-boilerplate-reqreply-idempotency.ask-timeout")
     )
 
-  private def idempotencyEntityRef(requestId: ExpiringValue): EntityRef[Idempotent.Command] = {
+  private def idempotencyEntityRef(requestId: ExpiringSignedValue): EntityRef[Idempotent.Command] = {
     idempotencyCluster.entityRefFor(
       Idempotent.EntityKey,
-      requestId.uuid.toString
+      requestId.value
     )
   }
 
-  def idempotencyResult(requestId: ExpiringValue, resultEntityRef: Option[EntityRef[Idempotent.Command]] = None): Future[Idempotent.Summary] = {
+  def idempotencyResult(requestId: ExpiringSignedValue, resultEntityRef: Option[EntityRef[Idempotent.Command]] = None): Future[Idempotent.Summary] = {
     resultEntityRef.getOrElse(idempotencyEntityRef(requestId)).askWithStatus(
       Idempotent.SingleRequest(Option.empty, Option.empty, _)
     )
   }
 
   def reqReply(
-                requestId: ExpiringValue,
+                requestId: ExpiringSignedValue,
                 responseBodyCallback: => Future[Idempotency.RequestReply]
               ): Future[Idempotency.RequestReply] = {
     val entityRef = idempotencyEntityRef(requestId)

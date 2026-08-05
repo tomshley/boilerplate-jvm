@@ -1,8 +1,9 @@
 package com.tomshley.boilerplate.jvm.reqreply.models
 
+import com.tomshley.boilerplate.jvm.reqreply.SignedValueDirectives
+
 import scala.concurrent.duration.*
 trait ExpiringSuccessPathView {
-  lazy val successPathExpiringValue: ExpiringValue = ExpiringValue(expirationDuration = Some(1.day), value = successValue)
   def successValue: Option[String]
-  lazy val successPathHmac: String = successPathExpiringValue.toBase64Hmac
+  lazy val successPathHmac: String = SignedValueDirectives.signValue(successValue.getOrElse(""), 1.day)
 }

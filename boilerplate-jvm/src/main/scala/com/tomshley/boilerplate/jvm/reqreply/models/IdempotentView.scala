@@ -1,6 +1,10 @@
 package com.tomshley.boilerplate.jvm.reqreply.models
 
+import com.tomshley.boilerplate.jvm.reqreply.SignedValueDirectives
+
+import java.util.UUID
+import scala.concurrent.duration.*
+
 trait IdempotentView {
-  lazy val requestId: ExpiringValue = ExpiringValue()
-  lazy val requestIdHmac: String = requestId.toBase64Hmac
+  lazy val requestIdHmac: String = SignedValueDirectives.signValue(UUID.randomUUID().toString, 5.minutes)
 }
