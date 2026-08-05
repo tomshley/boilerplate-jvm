@@ -14,7 +14,7 @@ import java.util.UUID
 @AvroName("SerdeEvent")
 @AvroNamespace("serde.spec")
 final case class SerdeEvent(
-    @AvroAlias("subject_id") correlation_id: String,
+    @AvroAlias("legacy_id") record_id: String,
     payload: String = "",
 )
     extends MarshallModel[SerdeEvent]
@@ -101,10 +101,10 @@ final class StreamsAvroSerdeSpec extends AnyWordSpec with Matchers:
       val legacyWriterSchema =
         SchemaBuilder.record("SerdeEvent").namespace("serde.spec")
           .fields()
-          .requiredString("subject_id")
+          .requiredString("legacy_id")
           .endRecord()
       val legacyRecord = new GenericData.Record(legacyWriterSchema)
-      legacyRecord.put("subject_id", "c-legacy")
+      legacyRecord.put("legacy_id", "c-legacy")
 
       val writerSerializer = new KafkaAvroSerializer()
       writerSerializer.configure(
