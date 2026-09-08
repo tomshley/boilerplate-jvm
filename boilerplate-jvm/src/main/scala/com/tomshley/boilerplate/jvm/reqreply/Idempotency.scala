@@ -42,25 +42,24 @@ class Idempotency(system: ActorSystem[?]) {
     val entityRef = idempotencyEntityRef(requestId)
     idempotencyResult(requestId, Some(entityRef))
       .flatMap(idempotentRequest =>
-        if (!idempotentRequest.isIdempotent) {
-          responseBodyCallback.map { (response: Idempotency.RequestReply) =>
-            // Intentionally fire-and-forget the reply persistence; reqReply returns the original response immediately.
-            entityRef.askWithStatus(
-              Idempotent
-                .SingleReply(response.headers, response.body, _)
-            ) match
-              // Silently fail pass
-              case _ => Idempotency.RequestReply(response.headers, response.body)
-          }
-        } else {
+        if (idempotentRequest.isIdempotent) {
           logger.info(
             "idempotencyKey {} isIdempotent {};",
             idempotentRequest.idempotencyKey,
             idempotentRequest.isIdempotent
           )
           Future.successful(
-            Idempotency.RequestReply(Option.empty, idempotentRequest.replyBody)
+            Idempotency.RequestReply(idempotentRequest.replyHeaders, idempotentRequest.replyBody)
           )
+        } else {
+          Future.delegate(responseBodyCallback).map { response =>
+            entityRef ! Idempotent.SingleReply(response.headers, response.body, system.ignoreRef)
+            response
+          }.recoverWith { case failure =>
+            entityRef
+              .askWithStatus(Idempotent.AbandonRequest(_))
+              .transformWith(_ => Future.failed(failure))
+          }
         }
       )
   }

@@ -12,8 +12,12 @@ final class ConfigKeyUtilSpec extends AnyWordSpec with Matchers {
       UnderTest.getValueWithDefault[String]("definitely.missing.key", None) shouldBe None
     }
 
+    "getValueWithDefault return the configured value when key is present" in {
+      UnderTest.getValueWithDefault[String]("config-key-util-fixture.present", Some("x")) shouldBe Some("0123456789abcdef")
+    }
+
     "getValueWithDefault return default when key is null" in {
-      UnderTest.getValueWithDefault[String]("tomshley-boilerplate-reqreply-idempotency.insecure-salt", Some("x")) shouldBe Some("0123456789abcdef")
+      UnderTest.getValueWithDefault[String]("config-key-util-fixture.explicitly-null", Some("x")) shouldBe Some("x")
     }
   }
 }
