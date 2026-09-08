@@ -23,6 +23,8 @@ object Idempotent {
                                replyTo: ActorRef[StatusReply[Summary]])
       extends Command
 
+  final case class AbandonRequest(replyTo: ActorRef[StatusReply[Summary]]) extends Command
+
   final case class State(idempotencyKey: Option[String],
                          requestedOn: Option[Instant],
                          repliedOn: Option[Instant],
@@ -164,12 +166,7 @@ object Idempotent {
     Behaviors.receive { (context, message) =>
       message match {
         case SingleRequest(headers, body, replyTo) =>
-          if (state.replyCount > 0) {
-            replyTo ! StatusReply.error(
-              s"This idempotent request already has a reply"
-            )
-            Behaviors.same
-          } else if (state.requestCount > 0) {
+          if (state.requestCount > 0) {
             idempotencyResult(idempotentKey, state.existingRequest(), replyTo)
           } else {
             idempotencyResult(
@@ -178,9 +175,15 @@ object Idempotent {
               replyTo
             )
           }
+        case AbandonRequest(replyTo) =>
+          idempotencyResult(
+            idempotentKey,
+            if (state.replyCount == 0) State.empty else state,
+            replyTo
+          )
         case SingleReply(headers, body, replyTo) =>
           if (state.requestCount == 0) {
-            replyTo ! StatusReply.error(s"Invalid idempotent state")
+            replyTo ! StatusReply.error("Invalid idempotent state")
             Behaviors.same
           } else if (state.replyCount > 0) {
             idempotencyResult(idempotentKey, state.existingReply(), replyTo)
