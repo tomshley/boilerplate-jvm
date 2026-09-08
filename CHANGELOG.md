@@ -6,6 +6,22 @@ This project follows Semantic Versioning.
 
 ---
 
+## [2.8.0] — 2026-09-08
+
+### Added
+- **`StaticAssetType.JSON` and `StaticAssetType.WEBP`** for serving JSON and WebP assets with their correct media types.
+- **Jackson CBOR serialization binding** for reqreply protocol messages.
+
+### Changed
+- **Idempotent request handling** now persists successful replies without delaying the original response, replays stored headers, and abandons incomplete request state when the response callback fails while preserving the original failure.
+- **Reqreply defaults** now live in `reference.conf`, with environment-variable overrides for the ask timeout and signing grace period.
+- **GitLab CI** now consumes the `cicd-pipelines` 0.9.0 adapter and runner contract.
+
+### Fixed
+- **Static asset media types** now derive their MIME type and file extension correctly for every asset type.
+
+---
+
 ## [2.7.0] — 2026-08-05
 
 ### Added
