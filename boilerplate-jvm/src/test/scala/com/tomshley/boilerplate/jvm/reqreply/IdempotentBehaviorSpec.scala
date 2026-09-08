@@ -1,6 +1,6 @@
 package com.tomshley.boilerplate.jvm.reqreply
 
-import org.apache.pekko.actor.testkit.typed.scaladsl.ScalaTestWithActorTestKit
+import org.apache.pekko.actor.testkit.typed.scaladsl.{ScalaTestWithActorTestKit, SerializationTestKit}
 import org.apache.pekko.pattern.StatusReply
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
@@ -58,7 +58,7 @@ final class IdempotentBehaviorSpec
       reply2.getValue.replyBody shouldBe Some("rep")
     }
 
-    "reject a request after a reply has been observed" in {
+    "return the stored reply after a request has been completed" in {
       val probe = createTestProbe[StatusReply[Idempotent.Summary]]()
       val ref = spawn(Idempotent("k1"))
 
@@ -70,7 +70,37 @@ final class IdempotentBehaviorSpec
 
       ref ! Idempotent.SingleRequest(None, None, probe.ref)
       val reply = probe.receiveMessage()
-      reply.isError shouldBe true
+      reply.isSuccess shouldBe true
+      reply.getValue.isIdempotent shouldBe true
+      reply.getValue.replyBody shouldBe Some("rep")
+    }
+
+    "abandon a request before a reply so the next request is fresh" in {
+      val probe = createTestProbe[StatusReply[Idempotent.Summary]]()
+      val ref = spawn(Idempotent("k1"))
+
+      ref ! Idempotent.SingleRequest(None, None, probe.ref)
+      probe.receiveMessage().isSuccess shouldBe true
+      ref ! Idempotent.AbandonRequest(probe.ref)
+      probe.receiveMessage().isSuccess shouldBe true
+      ref ! Idempotent.SingleRequest(None, None, probe.ref)
+      val reply = probe.receiveMessage()
+      reply.isSuccess shouldBe true
+      reply.getValue.isIdempotent shouldBe false
+    }
+
+    "retain a completed reply when abandonment is requested" in {
+      val probe = createTestProbe[StatusReply[Idempotent.Summary]]()
+      val ref = spawn(Idempotent("k1"))
+
+      ref ! Idempotent.SingleRequest(None, None, probe.ref)
+      probe.receiveMessage().isSuccess shouldBe true
+      ref ! Idempotent.SingleReply(None, Some("rep"), probe.ref)
+      probe.receiveMessage().isSuccess shouldBe true
+      ref ! Idempotent.AbandonRequest(probe.ref)
+      val reply = probe.receiveMessage()
+      reply.isSuccess shouldBe true
+      reply.getValue.replyBody shouldBe Some("rep")
     }
 
     "reject an invalid reply state (reply without request)" in {
@@ -80,6 +110,16 @@ final class IdempotentBehaviorSpec
       ref ! Idempotent.SingleReply(None, Some("rep"), probe.ref)
       val reply = probe.receiveMessage()
       reply.isError shouldBe true
+    }
+
+    "serialize every command through the library's jackson-cbor binding" in {
+      val probe = createTestProbe[StatusReply[Idempotent.Summary]]()
+      val serializationTestKit = SerializationTestKit(system)
+
+      serializationTestKit.verifySerialization(Idempotent.SingleRequest(Some(Map("h" -> "v")), Some("req"), probe.ref))
+      serializationTestKit.verifySerialization(Idempotent.SingleReply(None, Some("rep"), probe.ref))
+      serializationTestKit.verifySerialization(Idempotent.AbandonRequest(probe.ref))
+      serializationTestKit.verifySerialization(Idempotent.State.empty.toSummary)
     }
   }
 }

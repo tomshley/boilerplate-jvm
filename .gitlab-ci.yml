@@ -7,11 +7,11 @@
 # ---------------------------------------------------------------------------
 include:
   - project: 'tomshley/brands/global/tware/tech/products/provisioning/cicd-pipelines'
-    ref: 'v0.5.5'
+    ref: 'v0.9.0'
     file: '/adapters/gitlab/ci/adapter.yml'
 
 variables:
-  CICD_PIPELINES_RUNNER_TAG: "0.5.5"
+  CICD_PIPELINES_RUNNER_TAG: "0.9.0"
   SBT_OPTS: "-Xmx2G -Dsbt.log.noformat=true"
 
 # ---------------------------------------------------------------------------

@@ -86,11 +86,12 @@ enum StaticAssetType(mimeTypeValue: String) {
   case JPG extends StaticAssetType("image/jpeg")
   case WOFF2 extends StaticAssetType("font/woff2")
   case SVG extends StaticAssetType("image/svg+xml")
+  case JSON extends StaticAssetType("application/json")
+  case WEBP extends StaticAssetType("image/webp")
   case ICO extends StaticAssetType("image/vnd.microsoft.icon")
   case WEBMANIFEST extends StaticAssetType("application/manifest+json")
 
   def toExtension: String = toString.toLowerCase
-  
 
   def toContentType: ContentType.WithCharset = ContentType(
     this.toMediaType,
@@ -98,12 +99,8 @@ enum StaticAssetType(mimeTypeValue: String) {
   )
 
   def toMediaType: MediaType.WithOpenCharset = {
-    val mimeSub = this.toMime.split("/").last
-    MediaType.customWithOpenCharset(
-      this.toMime.split(s"""/$mimeSub""").head,
-      mimeSub,
-      fileExtensions = List("js")
-    )
+    val (mainType, slashSubType) = toMime.span(_ != '/')
+    MediaType.customWithOpenCharset(mainType, slashSubType.drop(1), fileExtensions = List(toExtension))
   }
 
   def toMime: String = mimeTypeValue
