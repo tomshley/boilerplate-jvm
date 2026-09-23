@@ -19,10 +19,13 @@
 
 package com.tomshley.boilerplate.jvm.managedmain
 
+import org.apache.pekko.actor.NoSerializationVerificationNeeded
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 
-import scala.util.{Failure, Success}
+import java.util.UUID
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Failure, Success, Try}
 import scala.util.control.NonFatal
 
 /** Internal coordinator actor that manages a [[Startup.Gated]] prerequisite.
@@ -32,7 +35,7 @@ import scala.util.control.NonFatal
   */
 private[managedmain] object StartupGate {
 
-  private sealed trait Event[+R]
+  private sealed trait Event[+R] extends NoSerializationVerificationNeeded
   private case class Completed[R](result: R) extends Event[R]
   private case class Failed(ex: Throwable) extends Event[Nothing]
   private case object TimedOut extends Event[Nothing]
@@ -42,35 +45,37 @@ private[managedmain] object StartupGate {
       Behaviors.withTimers[Event[R]] { timers =>
         timers.startSingleTimer(TimedOut, gate.timeout)
         Behaviors.setup[Event[R]] { context =>
-          context.pipeToSelf(gate.prerequisite()) {
+          given ExecutionContext = context.executionContext
+          val prerequisite = Future.fromTry(Try(gate.prerequisite())).flatten
+          context.pipeToSelf(prerequisite) {
             case Success(r)  => Completed(r)
             case Failure(ex) => Failed(ex)
           }
           Behaviors.receiveMessage {
             case Completed(result) =>
-              system.log.info("StartupGate [{}]: ready.", gate.name)
               try {
                 gate.onReady(result)
+                context.log.info("StartupGate [{}]: ready.", gate.name)
               } catch {
                 case NonFatal(ex) =>
-                  system.log.error(
-                    "StartupGate [{}]: onReady callback failed — terminating: {}",
+                  context.log.error(
+                    "StartupGate [{}]: onReady callback failed — terminating.",
                     gate.name,
-                    ex.getMessage
+                    ex
                   )
                   system.terminate()
               }
               Behaviors.stopped
             case Failed(ex) =>
-              system.log.error(
-                "StartupGate [{}]: failed — terminating: {}",
+              context.log.error(
+                "StartupGate [{}]: failed — terminating.",
                 gate.name,
-                ex.getMessage
+                ex
               )
               system.terminate()
               Behaviors.stopped
             case TimedOut =>
-              system.log.error(
+              context.log.error(
                 "StartupGate [{}]: did not complete within {} — terminating.",
                 gate.name,
                 gate.timeout
@@ -80,7 +85,7 @@ private[managedmain] object StartupGate {
           }
         }
       },
-      s"startup-gate-${gate.name}"
+      s"startup-gate-${UUID.randomUUID()}"
     )
   }
 }

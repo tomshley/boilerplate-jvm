@@ -30,7 +30,10 @@ lazy val `boilerplate-jvm` = (Project("boilerplate-jvm", file("boilerplate-jvm")
     organization := boilerplateProjectOrgName,
     magicRootPublishGitLabProjectId := 70100980,
     // Credential file lives in .secure_files/ (not project root)
-    credentials += Credentials(file(".secure_files/.credentials.gitlab"))
+    credentials += Credentials(file(".secure_files/.credentials.gitlab")),
+    libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.6.3" % Test,
+    Test / fork := true,
+    Test / javaOptions += "-Dslf4j.provider=ch.qos.logback.classic.spi.LogbackServiceProvider"
     // TODO(upgrade): LibProjectPekkoFullPlugin pulls magicroot's pekkoKafkaLibraries,
     // which bring the Confluent Platform 7.6.0 Avro serdes (kafka-avro-serializer,
     // kafka-streams-avro-serde). Those depend on kafka-clients:7.6.0-ccs (Apache
