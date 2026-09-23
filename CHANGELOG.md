@@ -6,6 +6,30 @@ This project follows Semantic Versioning.
 
 ---
 
+## [3.0.0] — 2026-09-22
+
+### Changed
+- **`CreateProducer.init` returns `Future[SendProducer]`** (**breaking**: a caller that used its result directly must compose with the future or await it at an entrypoint, and an already compiled caller hits `NoSuchMethodError`). Construction no longer blocks the calling thread, and no deadline or retry policy is imposed — startup policy such as `Startup.gated` stays with the caller.
+- **Producer construction is shared per factory and `ActorSystem`** rather than per JVM, through a system actor held as an extension. Message ordering replaces the `Promise`, so concurrent callers build exactly one producer and register exactly one coordinated-shutdown task.
+- **`CreateConsumer` documentation** reflects that `CreateProducer` now offers both a shared and a caller-owned producer.
+
+### Added
+- **`CreateProducer.sendProducer`** builds a `SendProducer` shared with nobody that registers no shutdown task, for a caller whose own restart lifecycle should own the producer.
+- **`tomshley-boilerplate-kafka.producer.ask-timeout`** (default `5 s`, overridable with `TOMSHLEY_BOILERPLATE_KAFKA_PRODUCER_ASK_TIMEOUT`) bounds the ask to the managing actor. It does not bound Kafka construction: the actor hands back the construction future rather than waiting on it.
+
+### Fixed
+- **A failed producer construction is no longer reused.** `SendProducer` keeps a failed bootstrap resolution inside its own producer future, so the previous memo stored a producer whose every send failed for the life of the JVM, and an unresolvable bootstrap address at startup could only be cleared by restarting the process. The next acquire now constructs a fresh producer.
+- **Coordinated shutdown closes a construction still in flight**, and acquiring during shutdown fails rather than leaving an orphaned producer.
+- **Enrichment runs exactly once per construction**, and the enriched settings' dispatcher, producer factory, close ownership and close timeout are preserved. `SendProducer` re-evaluates `enrichAsync` inside its own `createKafkaProducerAsync` even when a producer factory makes the enriched settings unused, which previously built and discarded a configured serializer on every construction.
+- **A startup gate prerequisite that throws before returning its future** now follows the shutdown path instead of escaping the gate's setup, so the failure is logged and the system terminates.
+- **Gate readiness is logged only after `onReady` succeeds**, and failures log the throwable rather than its message alone.
+- **Startup gate actor names are unique.** The human-readable gate name was used directly as the actor name, so two gates sharing a name, or a name carrying characters an actor name cannot hold, failed at creation.
+
+### Migration notes
+- `val producer = Factory.init(system)` becomes `Factory.init(system).map(...)`, or an await at the process entrypoint where a synchronous value is genuinely required. `Startup.gated` is the intended place to hold startup on it.
+
+---
+
 ## [2.8.0] — 2026-09-08
 
 ### Added
