@@ -68,7 +68,7 @@ object Startup {
     * complete (within `timeout`) and then calls `onReady` with the result.
     * On failure or timeout the system is terminated with diagnostic logging.
     *
-    * @param name          human-readable gate name, used in log messages and actor name
+    * @param name          human-readable gate name used in log messages
     * @param prerequisite  the async work that must finish before the service is ready
     * @param timeout       maximum time to wait before terminating the system
     * @param onReady       callback invoked with the prerequisite result on success
