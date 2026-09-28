@@ -8,10 +8,32 @@ import org.apache.pekko.pattern.StatusReply
 import java.time.Instant
 import scala.concurrent.ExecutionContextExecutor
 
+/** Plain wire types — boilerplate ships no serializer binding. The
+ *  consuming service owns serialization and binds `Idempotent$Command`
+ *  (plus `Idempotent$Summary` if sent standalone) in its own config.
+ *
+ *  Durability is likewise the consumer's choice. This entity's bookkeeping
+ *  is in-memory only; a consumer that needs crash-durable idempotency runs
+ *  its own `EventSourcedBehavior` over consumer-owned events and state —
+ *  [[State]] and its transition methods are the reusable pure core, the
+ *  same lift rule applied to `ClaimTicket` at the persistence boundary:
+ *
+ * {{{
+ *   // The journaled contract is consumer-owned — this protocol's types
+ *   // never persist. Transitions reuse the library's pure core:
+ *   def applyEvent(s: MyIdempotencyState, e: MyEvent): MyIdempotencyState =
+ *     e match {
+ *       case RequestRecorded(key, _)   => MyIdempotencyState.fromLib(s.toLib.newRequest(key, None, None))
+ *       case ReplyRecorded(h, b)       => MyIdempotencyState.fromLib(s.toLib.newReply(h, b))
+ *       case Abandoned(_) if s.toLib.replyCount == 0 =>
+ *         MyIdempotencyState.fromLib(Idempotent.State.empty)
+ *       case Abandoned(_)              => s
+ *     }
+ * }}}
+ */
 object Idempotent {
-  sealed trait Command extends CborSerializable
+  sealed trait Command
 
-  sealed trait Event extends CborSerializable
 
   final case class SingleRequest(headers: Option[Map[String, String]],
                                  body: Option[String],
@@ -25,6 +47,9 @@ object Idempotent {
 
   final case class AbandonRequest(replyTo: ActorRef[StatusReply[Summary]]) extends Command
 
+  /** Read-only status query — records nothing, claims nothing. */
+  final case class StatusRequest(replyTo: ActorRef[StatusReply[Summary]]) extends Command
+
   final case class State(idempotencyKey: Option[String],
                          requestedOn: Option[Instant],
                          repliedOn: Option[Instant],
@@ -33,7 +58,7 @@ object Idempotent {
                          requestHeaders: Option[Map[String, String]],
                          requestBody: Option[String],
                          replyHeaders: Option[Map[String, String]],
-                         replyBody: Option[String]) extends CborSerializable {
+                         replyBody: Option[String]) {
     def newRequest(idempotencyKey: String,
                    requestHeaders: Option[Map[String, String]],
                    requestBody: Option[String]): State = {
@@ -117,7 +142,7 @@ object Idempotent {
                            isIdempotent: Boolean,
                            repliedOn: Option[Instant],
                            replyHeaders: Option[Map[String, String]],
-                           replyBody: Option[String]) extends CborSerializable
+                           replyBody: Option[String])
 
   object State {
     val empty: State =
@@ -147,7 +172,11 @@ object Idempotent {
     ClusterSharding(system).init(Entity(EntityKey)(behaviorFactory))
   }
 
-  // TODO: Migrate to EventSourcedBehavior for crash-durable idempotency
+  // Durability is a per-consumer choice: a consumer that needs a
+  // crash-durable entity builds its own EventSourcedBehavior over
+  // consumer-owned events/state, reusing State's transitions. The library
+  // migrating this behavior itself would force a shared journal contract
+  // on every consumer — including ones that want in-memory only.
   def apply(idempotentKey: String): Behavior[Command] =
     idempotency(idempotentKey, State.empty)
 
@@ -165,6 +194,9 @@ object Idempotent {
                           state: State): Behavior[Command] =
     Behaviors.receive { (context, message) =>
       message match {
+        case StatusRequest(replyTo) =>
+          replyTo ! StatusReply.Success(state.toSummary)
+          Behaviors.same
         case SingleRequest(headers, body, replyTo) =>
           if (state.requestCount > 0) {
             idempotencyResult(idempotentKey, state.existingRequest(), replyTo)

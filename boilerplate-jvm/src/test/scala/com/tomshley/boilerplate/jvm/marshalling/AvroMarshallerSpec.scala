@@ -259,6 +259,47 @@ final class AvroMarshallerSpec extends AnyWordSpec with Matchers with ScalaFutur
         EnumDefaultEvent("acct-keep", Severity.HIGH)
     }
 
+    "toRecord with an explicit writer schema attaches it to the record" in {
+      val writer = AvroMarshaller.schema[TestAvroEvent]
+      val record = AvroMarshaller.toRecord(TestAvroEvent("evt-w", 1L, 2), writer)
+      record.getSchema should be theSameInstanceAs writer
+    }
+
+    "toRecord drops a field of T the writer schema does not declare" in {
+      val writer = recordLike(
+        AvroMarshaller.schema[TestAvroEvent],
+        stringField("id"),
+        new Schema.Field("ts", Schema.create(Schema.Type.LONG), null, null),
+      )
+      val record = AvroMarshaller.toRecord(TestAvroEvent("evt-w", 1L, 2), writer)
+      record.getSchema should be theSameInstanceAs writer
+      record.get("id").toString shouldBe "evt-w"
+      record.get("ts").toString shouldBe "1"
+      record.getSchema.getField("count") shouldBe null
+    }
+
+    "toRecord fails the encode when the writer schema carries a field T lacks" in {
+      val writer = recordLike(
+        AvroMarshaller.schema[TestAvroEvent],
+        stringField("id"),
+        new Schema.Field("ts", Schema.create(Schema.Type.LONG), null, null),
+        stringField("extra"),
+      )
+      an[com.sksamuel.avro4s.Avro4sConfigurationException] should be thrownBy
+        AvroMarshaller.toRecord(TestAvroEvent("evt-w", 1L, 2), writer)
+    }
+
+    "fromRecordResolving fills a reader default the writer schema lacked" in {
+      val reader = AvroMarshaller.schema[RenamedFieldEvent]
+      val writer = additiveWriterSchema(reader)
+      val rec = new GenericData.Record(writer)
+      rec.put("accountId", "acct-x")
+      rec.put("region", "us-x")
+
+      AvroMarshaller.fromRecordResolving[RenamedFieldEvent](rec, reader) shouldBe
+        RenamedFieldEvent("acct-x", "us-x", "n/a")
+    }
+
     "the avro4s drift this guards against still exists (remove the repair when this fails)" in {
       // Tripwire: when avro4s emits the default as a valid symbol (or omits the
       // field default), this assertion fails — remove withValidEnumDefaults then.

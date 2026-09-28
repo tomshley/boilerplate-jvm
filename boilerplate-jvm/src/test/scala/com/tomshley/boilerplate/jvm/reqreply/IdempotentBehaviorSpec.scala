@@ -112,13 +112,49 @@ final class IdempotentBehaviorSpec
       reply.isError shouldBe true
     }
 
-    "serialize every command through the library's jackson-cbor binding" in {
+    "answer a status query without claiming the key or counting a request" in {
+      val probe = createTestProbe[StatusReply[Idempotent.Summary]]()
+      val ref = spawn(Idempotent("k1"))
+
+      ref ! Idempotent.StatusRequest(probe.ref)
+      val first = probe.receiveMessage()
+      first.isSuccess shouldBe true
+      first.getValue.isIdempotent shouldBe false
+      first.getValue.replyBody shouldBe None
+
+      ref ! Idempotent.StatusRequest(probe.ref)
+      probe.receiveMessage().getValue.isIdempotent shouldBe false
+
+      ref ! Idempotent.SingleRequest(None, None, probe.ref)
+      val claimed = probe.receiveMessage()
+      claimed.isSuccess shouldBe true
+      claimed.getValue.isIdempotent shouldBe false
+    }
+
+    "report a stored reply on a status query without counting it" in {
+      val probe = createTestProbe[StatusReply[Idempotent.Summary]]()
+      val ref = spawn(Idempotent("k1"))
+
+      ref ! Idempotent.SingleRequest(None, None, probe.ref)
+      probe.receiveMessage().isSuccess shouldBe true
+      ref ! Idempotent.SingleReply(None, Some("rep"), probe.ref)
+      probe.receiveMessage().isSuccess shouldBe true
+
+      ref ! Idempotent.StatusRequest(probe.ref)
+      val status = probe.receiveMessage()
+      status.isSuccess shouldBe true
+      status.getValue.replyBody shouldBe Some("rep")
+      status.getValue.isIdempotent shouldBe false
+    }
+
+    "serialize every command through a consumer-declared jackson-cbor binding" in {
       val probe = createTestProbe[StatusReply[Idempotent.Summary]]()
       val serializationTestKit = SerializationTestKit(system)
 
       serializationTestKit.verifySerialization(Idempotent.SingleRequest(Some(Map("h" -> "v")), Some("req"), probe.ref))
       serializationTestKit.verifySerialization(Idempotent.SingleReply(None, Some("rep"), probe.ref))
       serializationTestKit.verifySerialization(Idempotent.AbandonRequest(probe.ref))
+      serializationTestKit.verifySerialization(Idempotent.StatusRequest(probe.ref))
       serializationTestKit.verifySerialization(Idempotent.State.empty.toSummary)
     }
   }
