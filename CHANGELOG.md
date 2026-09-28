@@ -6,6 +6,24 @@ This project follows Semantic Versioning.
 
 ---
 
+## [3.1.0] — 2026-09-28
+
+### Added
+- **`TwilioMessaging`** — channel-agnostic Twilio submission on the official SDK: SMS through the generated `Message` resource and email through `TwilioRestClient.request` against `/v1/Emails`. Clients are per-instance (never `Twilio.init` global state), with bounded connect, pool-wait, socket, and response timeouts, SDK retries and redirects disabled so caller retry policy stays authoritative, and connection-pool close registered with coordinated shutdown. `TwilioSendVerdict` gives both channels one outcome vocabulary (`Accepted`, `Retryable`, `OutcomeUnknown`, `InvalidRecipient`, `RecipientOptedOut`, `Rejected`); `TwilioMessagingConfig` redacts the auth token and validates its bounds at construction.
+- **`Idempotent.StatusRequest` and `Idempotency.idempotencyStatus`** — a read-only status query that records nothing and claims nothing, surfaced through `IdempotencyDirectives.getRequestId`.
+- **Explicit-schema Avro paths** — `AvroCodec.apply(schema)`, `AvroMarshaller.toRecord(model, writerSchema)`, and `AvroMarshaller.fromRecordResolving(record, readerSchema)`, including schema resolution for records whose writer enum defaults are invalid under the reader schema.
+- **`SecurityHeadersDirectives`** — configurable `respondWithDefaultHeaders` covering `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, HSTS, and an optional CSP, with inner-route overrides preserved.
+
+### Changed
+- **Serialization ownership moves to the consumer** (**breaking** for consumers that bound the library marker). `CborSerializable` is deleted and `reference.conf` no longer ships a `pekko.actor.serialization-bindings` entry — the library supplies plain wire types and no serializer policy. `ClaimTicket` documents the lift pattern for persisted data; `Idempotent` documents consumer-owned `EventSourcedBehavior` for durability.
+- **`Validations` email checks enforce UTF-8 octet bounds** (254 for the full address, 64 for the local part) rather than character counts, and reject whitespace, controls, delimiters, and U+FEFF. Phone validation bounds input by `phoneMaxLength` and accepts only literal spaces around extensions.
+- **Idempotency failures surface generically** — `IdempotencyDirectives` and `idempotentRequestReply` map failures to `UnknownRejection("Unknown error occurred")` instead of propagating exception detail.
+
+### Migration notes
+- A consumer `serialization-bindings` entry for `com.tomshley.boilerplate.jvm.reqreply.CborSerializable` is replaced by `com.tomshley.boilerplate.jvm.reqreply.Idempotent$Command` (plus `Idempotent$Summary` if it is sent standalone); other library types that were bound through the marker are bound or lifted by name in the consumer's own config.
+
+---
+
 ## [3.0.0] — 2026-09-22
 
 ### Changed
