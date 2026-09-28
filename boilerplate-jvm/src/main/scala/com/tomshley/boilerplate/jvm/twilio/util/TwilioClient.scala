@@ -10,6 +10,8 @@ import scala.annotation.tailrec
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.jdk.FutureConverters.*
 
+/** Legacy SMS client using Twilio global configuration. */
+@deprecated("use TwilioMessaging — per-instance client, both channels, typed TwilioSendVerdict")
 object TwilioClient {
   private val configInstance: Promise[TwilioConfig] = Promise()
 
