@@ -111,6 +111,21 @@ trait AvroMarshaller {
     Future { fromRecord(record) }
   }
 
+  /** [[toRecord]] against a supplied *writer* schema. The schema's fields
+   *  map onto the model's members by name: a member the schema does not
+   *  declare is dropped from the encoded record, and a declared field with
+   *  no model member fails the encode.
+   */
+  final def toRecord[T <: MarshallModel[T]](model: T, writerSchema: Schema)(using enc: Encoder[T]): GenericRecord =
+    ToRecord[T](writerSchema).to(model)
+
+  /** Like [[fromRecordResolving]] with the reader schema supplied
+   *  explicitly; writer-schema records still resolve through Avro schema
+   *  resolution.
+   */
+  final def fromRecordResolving[T <: MarshallModel[T]](record: GenericRecord, readerSchema: Schema)(using dec: Decoder[T]): T =
+    FromRecord[T](readerSchema).from(conformToReaderSchema(record, readerSchema))
+
   /** Like [[fromRecord]], but first conforms a record materialized under its
    *  *writer* schema onto the avro4s *reader* schema (`schema[T]`) — applied
    *  whenever the materialized writer schema differs from the reader schema (see

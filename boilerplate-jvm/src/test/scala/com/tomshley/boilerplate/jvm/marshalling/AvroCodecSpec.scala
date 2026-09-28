@@ -154,6 +154,24 @@ final class AvroCodecSpec extends AnyWordSpec with Matchers {
       an[org.apache.avro.AvroTypeException] should be thrownBy codec.fromRecordResolving(rec)
     }
 
+    "the explicit-schema apply captures and reuses the supplied schema" in {
+      val supplied = AvroMarshaller.schema[TestAvroEvent]
+      val codec = AvroCodec[TestAvroEvent](supplied)
+      codec.schema should be theSameInstanceAs supplied
+      val event = TestAvroEvent("evt-schema", 4000L, 11)
+      codec.fromRecord(codec.toRecord(event)) shouldBe event
+    }
+
+    "the explicit-schema apply fails at construction when the schema lacks a field of T" in {
+      val missing = recordLike(
+        AvroMarshaller.schema[TestAvroEvent],
+        stringField("id"),
+        new Schema.Field("ts", Schema.create(Schema.Type.LONG), null, null),
+      )
+      an[com.sksamuel.avro4s.Avro4sDecodingException] should be thrownBy
+        AvroCodec[TestAvroEvent](missing)
+    }
+
     "be safe to share across threads (Kafka Streams StreamThreads)" in {
       given ExecutionContext = ExecutionContext.global
       val codec = AvroCodec[RenamedFieldEvent]
