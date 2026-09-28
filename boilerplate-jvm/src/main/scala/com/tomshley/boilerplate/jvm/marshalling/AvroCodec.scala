@@ -43,10 +43,12 @@ import models.MarshallModel
  *
  *  Schema-evolution safety — what may be cached and what must stay dynamic:
  *    - The *reader* derivation (this codec) is a pure function of the
- *      compile-time type: `SchemaFor[T]` is derived by Magnolia from the case
- *      class. No runtime event can invalidate it — a new reader schema means
- *      a new binary, which means a fresh codec. Caching it is therefore
- *      evolution-proof by construction.
+ *      compile-time type, or of the explicit schema supplied at
+ *      construction — still fixed for the codec's lifetime. `SchemaFor[T]`
+ *      is derived by Magnolia from the case class. No runtime event can
+ *      invalidate it — a new reader schema means a new binary, which means
+ *      a fresh codec. Caching it is therefore evolution-proof by
+ *      construction.
  *    - The *writer* schema is a per-record fact (registry-framed records
  *      carry it) and can change mid-stream — producer deploys, replays over
  *      historical versions, interleaved versions on one topic.
@@ -69,7 +71,8 @@ import models.MarshallModel
  *  }}}
  */
 final class AvroCodec[T <: MarshallModel[T]] private (
-    /** The avro4s reader schema for `T` (identical to `AvroMarshaller.schema[T]`). */
+    /** The schema encode and decode run against — `SchemaFor[T]`'s
+     *  derivation, or the schema supplied to the explicit `apply`. */
     val schema: Schema,
     encodeFn: T => AnyRef,
     decodeFn: Any => T,
@@ -113,4 +116,11 @@ object AvroCodec:
    */
   def apply[T <: MarshallModel[T]](using enc: Encoder[T], dec: Decoder[T], sf: SchemaFor[T]): AvroCodec[T] =
     val schema = sf.schema
+    new AvroCodec[T](schema, enc.encode(schema), dec.decode(schema))
+
+  /** Explicit-schema variant — encode and decode run against the supplied
+   *  `schema` instead of `SchemaFor[T]`'s derivation. A schema that cannot
+   *  cover a member of `T` fails the decoder derivation at construction.
+   */
+  def apply[T <: MarshallModel[T]](schema: Schema)(using enc: Encoder[T], dec: Decoder[T]): AvroCodec[T] =
     new AvroCodec[T](schema, enc.encode(schema), dec.decode(schema))

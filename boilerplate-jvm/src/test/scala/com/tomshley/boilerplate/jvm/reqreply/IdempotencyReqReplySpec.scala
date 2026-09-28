@@ -65,5 +65,29 @@ final class IdempotencyReqReplySpec
       failed.failed.futureValue.getMessage shouldBe "sync"
       idempotency.reqReply(requestId, Future.successful(reply)).futureValue shouldBe reply
     }
+
+    "answer status without claiming, so a later reqReply still runs the callback" in {
+      val idempotency = Idempotency(system)
+      val requestId = freshRequestId()
+
+      val status = idempotency.idempotencyStatus(requestId).futureValue
+      status.replyBody shouldBe None
+      status.isIdempotent shouldBe false
+
+      val reply = Idempotency.RequestReply(None, Some("body"))
+      idempotency.reqReply(requestId, Future.successful(reply)).futureValue shouldBe reply
+    }
+
+    "reflect a stored reply on status without counting it as a request" in {
+      val idempotency = Idempotency(system)
+      val requestId = freshRequestId()
+      val reply = Idempotency.RequestReply(None, Some("body"))
+
+      idempotency.reqReply(requestId, Future.successful(reply)).futureValue shouldBe reply
+
+      val status = idempotency.idempotencyStatus(requestId).futureValue
+      status.replyBody shouldBe Some("body")
+      status.isIdempotent shouldBe false
+    }
   }
 }

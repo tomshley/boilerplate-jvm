@@ -29,9 +29,20 @@ class Idempotency(system: ActorSystem[?]) {
     )
   }
 
+  /** Claims the request: first caller is fresh, every later caller is marked
+    * idempotent and receives the stored reply. Mutates entity state — use only
+    * where arriving IS the request being deduplicated. */
   def idempotencyResult(requestId: ExpiringSignedValue, resultEntityRef: Option[EntityRef[Idempotent.Command]] = None): Future[Idempotent.Summary] = {
     resultEntityRef.getOrElse(idempotencyEntityRef(requestId)).askWithStatus(
       Idempotent.SingleRequest(Option.empty, Option.empty, _)
+    )
+  }
+
+  /** Read-only summary lookup — observes state without claiming the key or
+    * mutating stored data. */
+  def idempotencyStatus(requestId: ExpiringSignedValue, resultEntityRef: Option[EntityRef[Idempotent.Command]] = None): Future[Idempotent.Summary] = {
+    resultEntityRef.getOrElse(idempotencyEntityRef(requestId)).askWithStatus(
+      Idempotent.StatusRequest(_)
     )
   }
 
