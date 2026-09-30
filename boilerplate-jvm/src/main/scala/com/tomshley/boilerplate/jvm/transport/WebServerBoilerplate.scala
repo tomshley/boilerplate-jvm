@@ -19,9 +19,9 @@
 
 package com.tomshley.boilerplate.jvm.transport
 
-import org.apache.pekko.actor
+import com.tomshley.boilerplate.jvm.managedmain.ManagedSetup
 import org.apache.pekko.actor.typed.ActorSystem
-import org.apache.pekko.http.scaladsl.Http
+import org.apache.pekko.http.scaladsl.{Http, HttpsConnectionContext}
 import org.apache.pekko.http.scaladsl.server.Directives.{
   complete,
   concat,
@@ -31,46 +31,57 @@ import org.apache.pekko.http.scaladsl.server.Directives.{
 import org.apache.pekko.http.scaladsl.server.Route
 
 import java.time.Instant
+import scala.concurrent.Future
 import scala.concurrent.duration.*
-import scala.concurrent.{ExecutionContextExecutor, Future}
-import scala.util.{Failure, Success}
 
-object WebServerBoilerplate extends TransportBoilerplate[Http.ServerBinding, Seq[Route]] {
+object WebServerBoilerplate
+  extends TransportBoilerplate[Http.ServerBinding, Seq[Route]] {
 
   override def start(
-                      interface: String,
-                      port: Int,
-                      system: ActorSystem[?],
-                      routes: Seq[Route]
-                    ): Future[Http.ServerBinding] = {
+      interface: String,
+      port: Int,
+      system: ActorSystem[?],
+      routes: Seq[Route]
+  ): Future[Http.ServerBinding] =
+    start(interface, port, system, routes, identity[HttpServerSetup])
 
-    import org.apache.pekko.actor.typed.scaladsl.adapter.*
-    given classicSystem: actor.ActorSystem = system.toClassic
-    given ec: ExecutionContextExecutor = system.executionContext
+  def start(
+      interface: String,
+      port: Int,
+      system: ActorSystem[?],
+      routes: Seq[Route],
+      httpsContext: HttpsConnectionContext
+  ): Future[Http.ServerBinding] =
+    start(interface, port, system, routes, _.copy(httpsContext = Some(httpsContext)))
 
-    val bound = Http()
-      .newServerAt(interface, port)
-      .bind(concat((Seq(get {
+  def start(
+      interface: String,
+      port: Int,
+      system: ActorSystem[?],
+      routes: Seq[Route],
+      configure: HttpServerSetup => HttpServerSetup
+  ): Future[Http.ServerBinding] = {
+    given ActorSystem[?] = system
+
+    val shutdownDeadline = system.settings.config
+      .getDuration("tomshley-boilerplate-transport.http.shutdown-timeout").toNanos.nanos
+    manageBinding(system, "HTTP", {
+      val route = concat((Seq(get {
         path("heartbeat") {
           complete(Instant.now().toString)
         }
-      }) ++ routes)*))
-      .map(_.addToCoordinatedShutdown(3.seconds))
-
-    bound.onComplete {
-      case Success(binding) =>
-        val address = binding.localAddress
-        system.log.info(
-          "HTTP server online at {}:{}",
-          address.getHostString,
-          address.getPort
-        )
-
-      case Failure(ex) =>
-        system.log.error("Failed to bind HTTP server, terminating system", ex)
-        system.terminate()
-    }
-
-    bound
+      }) ++ routes)*)
+      val configured = configure(
+        ManagedSetup.from(system).http(HttpServerSetup(Route.toFunction(route)))
+      )
+      val server = Http().newServerAt(interface, port)
+      configured.httpsContext.fold(server)(server.enableHttps).bind(configured.service)
+    })(
+      binding => {
+        binding.addToCoordinatedShutdown(shutdownDeadline)
+        ()
+      },
+      _.localAddress
+    )
   }
 }

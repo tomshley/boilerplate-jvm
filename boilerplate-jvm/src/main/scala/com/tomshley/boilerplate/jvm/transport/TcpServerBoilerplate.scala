@@ -19,7 +19,8 @@
 
 package com.tomshley.boilerplate.jvm.transport
 
-import org.apache.pekko.{Done, NotUsed}
+import com.tomshley.boilerplate.jvm.managedmain.ManagedSetup
+import org.apache.pekko.Done
 import org.apache.pekko.actor
 import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.ActorSystem
@@ -30,8 +31,8 @@ import org.apache.pekko.stream.stage.{GraphStage, GraphStageLogic, InHandler, Ou
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.util.ByteString
 
+import javax.net.ssl.SSLEngine
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Success, Failure}
 
 object TcpServerBoilerplate
   extends TransportBoilerplate[Tcp.ServerBinding, TcpServerHandlerBoilerplate] {
@@ -77,61 +78,65 @@ object TcpServerBoilerplate
   }
 
   override def start(
-                      interface: String,
-                      port: Int,
-                      system: ActorSystem[?],
-                      handler: TcpServerHandlerBoilerplate
-                    ): Future[Tcp.ServerBinding] = {
+      interface: String,
+      port: Int,
+      system: ActorSystem[?],
+      handler: TcpServerHandlerBoilerplate
+  ): Future[Tcp.ServerBinding] =
+    start(interface, port, system, handler, identity[TcpServerSetup])
+
+  def start(
+      interface: String,
+      port: Int,
+      system: ActorSystem[?],
+      handler: TcpServerHandlerBoilerplate,
+      createSSLEngine: () => SSLEngine
+  ): Future[Tcp.ServerBinding] =
+    start(interface, port, system, handler, _.copy(createSSLEngine = Some(createSSLEngine)))
+
+  def start(
+      interface: String,
+      port: Int,
+      system: ActorSystem[?],
+      handler: TcpServerHandlerBoilerplate,
+      configure: TcpServerSetup => TcpServerSetup
+  ): Future[Tcp.ServerBinding] = {
 
     given sys: ActorSystem[?] = system
     given classicSystem: actor.ActorSystem = system.toClassic
     given ec: ExecutionContext = system.executionContext
     given mat: Materializer = Materializer(classicSystem)
 
-    val bound: Future[Tcp.ServerBinding] =
-      Tcp()
-        .bind(interface, port)
-        .to(Sink.foreach { connection =>
-          val initialState = handler.initialState
-          val flow = Flow[ByteString]
-            .via(handler.framing)
-            .map(_.compact)
-            .scanAsync((initialState, ByteString.empty)) { case ((state, _), msg) =>
-              handler.onMessage(msg, state)
-            }
-            .drop(1)
-            .via(Flow.fromGraph(new ConnectionLifecycleStage[handler.State](
-              initialState = initialState,
-              outboundFraming = handler.outboundFraming,
-              onClosed = (state, cause) => handler.onConnectionClosed(state, cause)
-            )))
-          connection.handleWith(flow)
-        })
-        .run()
-
-    bound.foreach { binding =>
-      CoordinatedShutdown(classicSystem).addTask(
-        CoordinatedShutdown.PhaseServiceUnbind,
-        "tcp-server-unbind"
-      ) { () =>
-        binding.unbind().map(_ => Done)(ec)
+    manageBinding(system, "TCP", {
+      val configured = configure(
+        ManagedSetup.from(system).tcp(TcpServerSetup(handler))
+      )
+      val connectionHandler = configured.handler
+      val connections = configured.createSSLEngine match {
+        case Some(factory) => Tcp().bindWithTls(interface, port, factory)
+        case None => Tcp().bind(interface, port)
       }
-    }
-
-    bound.onComplete {
-      case Success(binding) =>
-        val address = binding.localAddress
-        system.log.info(
-          "TCP server online at {}:{}",
-          address.getHostString,
-          address.getPort
-        )
-
-      case Failure(ex) =>
-        system.log.error("Failed to bind TCP server, terminating system", ex)
-        system.terminate()
-    }
-
-    bound
+      connections.to(Sink.foreach { connection =>
+        val initialState = connectionHandler.initialState
+        val flow = Flow[ByteString]
+          .via(connectionHandler.framing)
+          .map(_.compact)
+          .scanAsync((initialState, ByteString.empty)) { case ((state, _), msg) =>
+            connectionHandler.onMessage(msg, state)
+          }
+          .drop(1)
+          .via(Flow.fromGraph(new ConnectionLifecycleStage[connectionHandler.State](
+            initialState = initialState,
+            outboundFraming = connectionHandler.outboundFraming,
+            onClosed = (state, cause) => connectionHandler.onConnectionClosed(state, cause)
+          )))
+        connection.handleWith(flow)
+      }).run()
+    })(
+      bound => CoordinatedShutdown(classicSystem).addTask(
+        CoordinatedShutdown.PhaseServiceUnbind, "tcp-server-unbind"
+      )(() => bound.unbind().map(_ => Done)),
+      _.localAddress
+    )
   }
 }

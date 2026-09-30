@@ -19,12 +19,12 @@
 
 package com.tomshley.boilerplate.jvm.transport
 
+import com.tomshley.boilerplate.jvm.managedmain.ManagedSetup
 import org.apache.pekko.actor.typed.ActorSystem
-import org.apache.pekko.http.scaladsl.{Http, model}
+import org.apache.pekko.http.scaladsl.{Http, HttpsConnectionContext, model}
 
+import scala.concurrent.Future
 import scala.concurrent.duration.*
-import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success}
 
 object GrpcServerBoilerplate
   extends TransportBoilerplate[
@@ -33,36 +33,46 @@ object GrpcServerBoilerplate
   ] {
 
   override def start(
-                      interface: String,
-                      port: Int,
-                      system: ActorSystem[?],
-                      service: model.HttpRequest => scala.concurrent.Future[model.HttpResponse]
-                    ): Future[Http.ServerBinding] = {
+      interface: String,
+      port: Int,
+      system: ActorSystem[?],
+      service: model.HttpRequest => Future[model.HttpResponse]
+  ): Future[Http.ServerBinding] =
+    start(interface, port, system, service, identity[HttpServerSetup])
 
-    given sys: ActorSystem[?] = system
-    given ec: ExecutionContext = system.executionContext
+  def start(
+      interface: String,
+      port: Int,
+      system: ActorSystem[?],
+      service: model.HttpRequest => Future[model.HttpResponse],
+      httpsContext: HttpsConnectionContext
+  ): Future[Http.ServerBinding] =
+    start(interface, port, system, service, _.copy(httpsContext = Some(httpsContext)))
 
-    val bound =
-      Http()
-        .newServerAt(interface, port)
-        .bind(service)
-        .map(_.addToCoordinatedShutdown(3.seconds))
+  def start(
+      interface: String,
+      port: Int,
+      system: ActorSystem[?],
+      service: model.HttpRequest => Future[model.HttpResponse],
+      configure: HttpServerSetup => HttpServerSetup
+  ): Future[Http.ServerBinding] = {
+    given ActorSystem[?] = system
 
-    bound.onComplete {
-      case Success(binding) =>
-        val address = binding.localAddress
-        system.log.info(
-          "gRPC server online at {}:{}",
-          address.getHostString,
-          address.getPort
-        )
-
-      case Failure(ex) =>
-        system.log.error("Failed to bind gRPC server, terminating system", ex)
-        system.terminate()
-    }
-
-    bound
+    val shutdownDeadline = system.settings.config
+      .getDuration("tomshley-boilerplate-transport.http.shutdown-timeout").toNanos.nanos
+    manageBinding(system, "gRPC", {
+      val configured = configure(
+        ManagedSetup.from(system).http(HttpServerSetup(service))
+      )
+      val server = Http().newServerAt(interface, port)
+      configured.httpsContext.fold(server)(server.enableHttps).bind(configured.service)
+    })(
+      binding => {
+        binding.addToCoordinatedShutdown(shutdownDeadline)
+        ()
+      },
+      _.localAddress
+    )
   }
 
 }
