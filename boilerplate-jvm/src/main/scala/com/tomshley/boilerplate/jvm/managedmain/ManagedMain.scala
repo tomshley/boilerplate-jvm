@@ -19,30 +19,51 @@
 
 package com.tomshley.boilerplate.jvm.managedmain
 
+import org.apache.pekko.actor.CoordinatedShutdown
+import org.apache.pekko.actor.setup.ActorSystemSetup
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.slf4j.{Logger, LoggerFactory}
 
+import scala.concurrent.duration.*
 import scala.util.control.NonFatal
 
 protected[managedmain] trait ManagedMain {
-  def apply(serviceName:String, body: (system:ActorSystem[?]) => Startup): Unit = {
-    def logger: Logger = LoggerFactory.getLogger(s"$serviceName-$name")
 
+  def apply(serviceName: String, body: ActorSystem[?] => Startup): Unit = {
+    apply(serviceName, ActorSystemSetup.empty, body)
+    ()
+  }
+
+  def apply(serviceName: String, setup: ManagedSetup, body: ActorSystem[?] => Startup): ActorSystem[Nothing] =
+    apply(serviceName, ActorSystemSetup(setup), body)
+
+  def apply(serviceName: String, setup: ActorSystemSetup, body: ActorSystem[?] => Startup): ActorSystem[Nothing] = {
+    def logger: Logger = LoggerFactory.getLogger(s"$serviceName-$name")
     ActorSystem[Nothing](Behaviors.setup[Nothing] { context =>
+      given ActorSystem[?] = context.system
+      def launch(): Unit = {
+        if (CoordinatedShutdown(context.system).shutdownReason().isEmpty) {
+          bootstrap(context.system, logger)
+          body(context.system).run
+        }
+      }
       try {
-        bootstrap(context.system, logger)
-        given ActorSystem[?] = context.system
-        body(context.system).run
+        val managed = ManagedSetup.from(context.system)
+        if (managed.startup.isEmpty) launch()
+        else {
+          val timeout = context.system.settings.config
+            .getDuration("tomshley-boilerplate-managedmain.startup-timeout").toNanos.nanos
+          require(timeout.length > 0, "Managed startup timeout must be positive")
+          Startup.gated("managed startup", managed.initialize(context.system), timeout)(_ => launch()).run
+        }
       } catch {
         case NonFatal(e) =>
           logger.error("Terminating due to initialization failure.", e)
           context.system.terminate()
       }
-
       Behaviors.empty
-    }, serviceName)
-
+    }, serviceName, setup)
   }
 
   protected[managedmain] lazy val name:String
