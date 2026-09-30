@@ -6,6 +6,21 @@ This project follows Semantic Versioning.
 
 ---
 
+## [3.2.0] — 2026-09-29
+
+### Added
+- **`ManagedSetup` and `StartupTask`** — immutable per-system startup policy carried by `ActorSystemSetup`. Startup tasks acquire sequentially inside a gate before the application body runs; a failed acquisition or a startup-timeout expiry terminates the system first. Each task's release registers with coordinated shutdown before its acquire runs, waits for a pending acquisition, and never acquires a resource whose cleanup already ran.
+- **Per-listener TLS on all server transports** — `WebServerBoilerplate` and `GrpcServerBoilerplate` accept a `HttpsConnectionContext`; `TcpServerBoilerplate` accepts a per-connection `SSLEngine` factory and binds through `Tcp().bindWithTls`. `ManagedSetup.tls` applies the same certificate policy to every listener in the system, and certificate provisioning, renewal, and trust configuration stay with the caller.
+- **`HttpServerSetup` and `TcpServerSetup`** — setup values describing each listener's handler and optional TLS selection. A `configure` overload carves out local exceptions (for example, plaintext on one listener inside a TLS-managed system) without touching the managed defaults.
+- **`tomshley-boilerplate-transport.http.shutdown-timeout`** (default `3 s`, env `TOMSHLEY_BOILERPLATE_TRANSPORT_HTTP_SHUTDOWN_TIMEOUT`) — bounds coordinated-shutdown draining for HTTP and gRPC bindings.
+- **`tomshley-boilerplate-managedmain.startup-timeout`** (default `30 s`, env `TOMSHLEY_BOILERPLATE_MANAGEDMAIN_STARTUP_TIMEOUT`) — bounds the managed startup gate.
+
+### Changed
+- **`ManagedMain.apply` overloads** — setup-aware variants accept `ManagedSetup` or `ActorSystemSetup` and return the `ActorSystem` handle so callers own shutdown; the two-argument form keeps its `Unit` fire-and-forget contract.
+- **All transports share one binding lifecycle** — `TransportBoilerplate.manageBinding` completes coordinated-shutdown registration before the binding future, logs the bound address, and terminates the system on bind failure.
+
+---
+
 ## [3.1.0] — 2026-09-28
 
 ### Added
