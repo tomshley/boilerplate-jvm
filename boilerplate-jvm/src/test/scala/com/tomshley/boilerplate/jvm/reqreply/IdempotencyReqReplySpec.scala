@@ -4,11 +4,12 @@ import com.tomshley.boilerplate.jvm.security.tokens.{ExpiringSignedValue, Keyrin
 import com.typesafe.config.ConfigFactory
 import org.apache.pekko.actor.testkit.typed.scaladsl.ScalaTestWithActorTestKit
 import org.apache.pekko.cluster.typed.{Cluster, Join}
+import org.apache.pekko.pattern.StatusReply
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.time.Instant
 import java.util.UUID
-import scala.concurrent.Future
+import scala.concurrent.{Future, Promise}
 import scala.concurrent.duration.*
 
 final class IdempotencyReqReplySpec
@@ -88,6 +89,161 @@ final class IdempotencyReqReplySpec
       val status = idempotency.idempotencyStatus(requestId).futureValue
       status.replyBody shouldBe Some("body")
       status.isIdempotent shouldBe false
+    }
+
+    "release an incomplete claim so a later reqReply runs fresh" in {
+      val idempotency = Idempotency(system)
+      val requestId = freshRequestId()
+
+      idempotency.idempotencyResult(requestId).futureValue
+      idempotency.release(requestId).futureValue.replyBody shouldBe None
+      idempotency.idempotencyStatus(requestId).futureValue.replyBody shouldBe None
+
+      val reply = Idempotency.RequestReply(None, Some("body"))
+      idempotency.reqReply(requestId, Future.successful(reply)).futureValue shouldBe reply
+    }
+
+    "keep the stored reply when a completed claim is released" in {
+      val idempotency = Idempotency(system)
+      val requestId = freshRequestId()
+      val reply = Idempotency.RequestReply(None, Some("body"))
+
+      idempotency.reqReply(requestId, Future.successful(reply)).futureValue shouldBe reply
+      idempotency.release(requestId).futureValue.replyBody shouldBe Some("body")
+      idempotency.reqReply(requestId, Future.failed(new IllegalStateException("must not run twice"))).futureValue shouldBe reply
+    }
+
+    "record and replay a deliberately empty reply" in {
+      val idempotency = Idempotency(system)
+      val requestId = freshRequestId()
+      val empty = Idempotency.RequestReply(None, None)
+
+      idempotency.reqReply(requestId, Future.successful(empty)).futureValue shouldBe empty
+      idempotency.reqReply(requestId, Future.failed(new IllegalStateException("must not run twice"))).futureValue shouldBe empty
+      idempotency.idempotencyStatus(requestId).futureValue.repliedOn shouldBe defined
+    }
+
+    "return the acknowledged stored reply when another record wins first" in {
+      val idempotency = Idempotency(system)
+      val requestId = freshRequestId()
+      val started = Promise[Unit]()
+      val gate = Promise[Idempotency.RequestReply]()
+      val replyProbe = createTestProbe[StatusReply[Idempotent.Summary]]()
+
+      val result = idempotency.reqReply(requestId, {
+        started.success(())
+        gate.future
+      })
+      started.future.futureValue
+
+      val stored = Idempotency.RequestReply(Some(Map("source" -> "stored")), Some("winner"))
+      val entityRef = idempotency.idempotencyCluster.entityRefFor(Idempotent.EntityKey, requestId.value)
+      entityRef ! Idempotent.SingleReply(stored.headers, stored.body, replyProbe.ref)
+      replyProbe.receiveMessage().isSuccess shouldBe true
+
+      gate.success(Idempotency.RequestReply(Some(Map("source" -> "callback")), Some("later")))
+
+      result.futureValue shouldBe stored
+      idempotency
+        .reqReply(requestId, Future.failed(new IllegalStateException("must not run twice")))
+        .futureValue shouldBe stored
+    }
+  }
+
+  "Idempotency.reqReplyOutcome" should {
+
+    "complete a fresh claim and replay the stored reply on a typed repeat" in {
+      val idempotency = Idempotency(system)
+      val requestId = freshRequestId()
+      val reply = Idempotency.RequestReply(Some(Map("h" -> "v")), Some("body"))
+
+      idempotency.reqReplyOutcome(requestId, Future.successful(reply)).futureValue shouldBe
+        Idempotency.Outcome.Completed(reply)
+      idempotency
+        .reqReplyOutcome(requestId, Future.failed(new IllegalStateException("must not run twice")))
+        .futureValue shouldBe Idempotency.Outcome.Completed(reply)
+    }
+
+    "distinguish a pending duplicate from a deliberately empty completed reply" in {
+      val idempotency = Idempotency(system)
+      val requestId = freshRequestId()
+      val started = Promise[Unit]()
+      val gate = Promise[Idempotency.RequestReply]()
+
+      val first = idempotency.reqReplyOutcome(requestId, {
+        started.success(())
+        gate.future
+      })
+      started.future.futureValue
+
+      idempotency
+        .reqReplyOutcome(requestId, Future.failed(new IllegalStateException("must not run twice")))
+        .futureValue shouldBe Idempotency.Outcome.Pending
+      idempotency
+        .reqReply(requestId, Future.failed(new IllegalStateException("must not run twice")))
+        .futureValue shouldBe Idempotency.RequestReply(None, None)
+
+      gate.success(Idempotency.RequestReply(None, None))
+      first.futureValue shouldBe
+        Idempotency.Outcome.Completed(Idempotency.RequestReply(None, None))
+
+      idempotency
+        .reqReplyOutcome(requestId, Future.failed(new IllegalStateException("must not run twice")))
+        .futureValue shouldBe
+        Idempotency.Outcome.Completed(Idempotency.RequestReply(None, None))
+      idempotency.idempotencyStatus(requestId).futureValue.repliedOn shouldBe defined
+    }
+
+    "release the claim on a failed typed callback so the next attempt is fresh" in {
+      val idempotency = Idempotency(system)
+      val requestId = freshRequestId()
+      val failure = new IllegalStateException("downstream")
+
+      idempotency.reqReplyOutcome(requestId, Future.failed(failure)).failed.futureValue should
+        be theSameInstanceAs failure
+
+      val reply = Idempotency.RequestReply(None, Some("body"))
+      idempotency.reqReplyOutcome(requestId, Future.successful(reply)).futureValue shouldBe
+        Idempotency.Outcome.Completed(reply)
+    }
+
+    "release the claim on a typed callback that throws" in {
+      val idempotency = Idempotency(system)
+      val requestId = freshRequestId()
+      val failure = new IllegalStateException("sync")
+
+      idempotency.reqReplyOutcome(requestId, throw failure).failed.futureValue should
+        be theSameInstanceAs failure
+
+      val reply = Idempotency.RequestReply(None, Some("body"))
+      idempotency.reqReplyOutcome(requestId, Future.successful(reply)).futureValue shouldBe
+        Idempotency.Outcome.Completed(reply)
+    }
+
+    "return the acknowledged stored reply when another record wins first" in {
+      val idempotency = Idempotency(system)
+      val requestId = freshRequestId()
+      val started = Promise[Unit]()
+      val gate = Promise[Idempotency.RequestReply]()
+      val replyProbe = createTestProbe[StatusReply[Idempotent.Summary]]()
+
+      val result = idempotency.reqReplyOutcome(requestId, {
+        started.success(())
+        gate.future
+      })
+      started.future.futureValue
+
+      val stored = Idempotency.RequestReply(Some(Map("source" -> "stored")), Some("winner"))
+      val entityRef = idempotency.idempotencyCluster.entityRefFor(Idempotent.EntityKey, requestId.value)
+      entityRef ! Idempotent.SingleReply(stored.headers, stored.body, replyProbe.ref)
+      replyProbe.receiveMessage().isSuccess shouldBe true
+
+      gate.success(Idempotency.RequestReply(Some(Map("source" -> "callback")), Some("later")))
+
+      result.futureValue shouldBe Idempotency.Outcome.Completed(stored)
+      idempotency
+        .reqReplyOutcome(requestId, Future.failed(new IllegalStateException("must not run twice")))
+        .futureValue shouldBe Idempotency.Outcome.Completed(stored)
     }
   }
 }

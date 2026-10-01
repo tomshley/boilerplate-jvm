@@ -6,6 +6,25 @@ This project follows Semantic Versioning.
 
 ---
 
+## [4.0.0] — 2026-10-01
+
+### Added
+- **`Idempotent.persistent`** — opt-in journal-backed variant of the idempotency entity, built on `EventSourcedBehavior.withEnforcedReplies`. It reuses the same pure claim/repeat/record/release transitions as the in-memory behavior. The caller supplies the `PersistenceId` plus `EventAdapter` and `SnapshotAdapter`, so every stored event and snapshot stays under consumer-owned schemas; no library class reaches the journal. Journal plugin, snapshotting, retention, and supervision all remain native Pekko settings owned by the consumer.
+- **`Idempotency.reqReplyOutcome` and `Outcome`** — a typed result distinguishing `Pending` (a duplicate whose first request is still in flight) from `Completed` (a stored reply, including a deliberately empty one). `reqReply` remains as a compatibility projection that maps `Pending` to an empty `RequestReply`.
+- **`Idempotency.release`** — explicit abandonment of an incomplete claim for recovery paths; leaves a completed reply intact and is a no-op for an unclaimed key.
+
+### Changed
+- **`reqReply` acknowledges recording before completing** (**breaking** for callers relying on fire-and-forget timing). A fresh claim now completes only after the entity confirms the reply is recorded, so a returned success is replayable. An unconfirmed record acknowledgement fails the call without releasing the claim — the write may still have landed. A failed or thrown callback attempts release and propagates the original failure; if that release is not acknowledged a warning is logged and the claim may remain pending.
+- **Recovered in-flight claims are not re-executed** — a restarted persistent entity replays a claim without a reply as pending, and the caller decides how to finish or release it. Recording makes the reply replayable; it does not make the callback's external side effects exactly-once.
+- **`Idempotent` documentation** now describes the wire-lift pattern (`SerializationSetup` or configuration binding into consumer-owned classes) alongside the journaled variant.
+
+### Migration notes
+- Consumers that do not need durability keep `Idempotent.init(system)` unchanged — in-memory remains the default and nothing new is required.
+- Consumers opting into durability call `Idempotent.init(system, ctx => Idempotent.persistent(...))` with their own `PersistenceId`, event DTOs, snapshot DTOs, and adapters. A `SnapshotAdapter` is required even when snapshotting is disabled, so the stored schema is never implicitly the library's `State`.
+- Callers that must distinguish "duplicate still running" from "recorded empty reply" should move from `reqReply` to `reqReplyOutcome`.
+
+---
+
 ## [3.2.0] — 2026-09-29
 
 ### Added
