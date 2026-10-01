@@ -7,6 +7,7 @@ import org.apache.pekko.util.Timeout
 import org.slf4j.{Logger, LoggerFactory}
 
 import scala.concurrent.Future
+import scala.util.{Failure, Success}
 
 class Idempotency(system: ActorSystem[?]) {
 
@@ -46,33 +47,75 @@ class Idempotency(system: ActorSystem[?]) {
     )
   }
 
+  /** Explicitly releases an incomplete claim, leaving completed replies intact.
+    * Reconcile external effects and quiesce the previous execution and its
+    * outstanding messages first: this is not cancellation or a fenced takeover.
+    * A failed acknowledgement is uncertain, not proof that release did not occur.
+    */
+  def release(requestId: ExpiringSignedValue): Future[Idempotent.Summary] =
+    idempotencyEntityRef(requestId).askWithStatus[Idempotent.Summary](
+      Idempotent.AbandonRequest(_)
+    )
+
+  /** Compatibility projection of [[reqReplyOutcome]]. Pending maps to an empty
+    * RequestReply, which is indistinguishable here from a completed empty reply.
+    * Use reqReplyOutcome when completion must be explicit. Failures remain failed
+    * futures; the callback is evaluated only for a fresh claim.
+    */
   def reqReply(
-                requestId: ExpiringSignedValue,
-                responseBodyCallback: => Future[Idempotency.RequestReply]
-              ): Future[Idempotency.RequestReply] = {
+      requestId: ExpiringSignedValue,
+      responseBodyCallback: => Future[Idempotency.RequestReply]
+  ): Future[Idempotency.RequestReply] =
+    reqReplyOutcome(requestId, responseBodyCallback).map {
+      case Idempotency.Outcome.Pending => Idempotency.RequestReply(None, None)
+      case Idempotency.Outcome.Completed(reply) => reply
+    }
+
+  /** Claims the key and returns Pending for an incomplete duplicate, or Completed
+    * with the stored response, including a deliberately empty response. A fresh
+    * claim evaluates the callback once and waits for the recorded reply's
+    * acknowledgement. Callback failure attempts release; unconfirmed recording
+    * fails without release because the write or external effect may have happened.
+    * Pending does not establish that the original execution is still alive.
+    */
+  def reqReplyOutcome(
+      requestId: ExpiringSignedValue,
+      responseBodyCallback: => Future[Idempotency.RequestReply]
+  ): Future[Idempotency.Outcome] = {
     val entityRef = idempotencyEntityRef(requestId)
-    idempotencyResult(requestId, Some(entityRef))
-      .flatMap(idempotentRequest =>
-        if (idempotentRequest.isIdempotent) {
-          logger.info(
-            "idempotencyKey {} isIdempotent {};",
-            idempotentRequest.idempotencyKey,
-            idempotentRequest.isIdempotent
-          )
-          Future.successful(
-            Idempotency.RequestReply(idempotentRequest.replyHeaders, idempotentRequest.replyBody)
-          )
-        } else {
-          Future.delegate(responseBodyCallback).map { response =>
-            entityRef ! Idempotent.SingleReply(response.headers, response.body, system.ignoreRef)
-            response
-          }.recoverWith { case failure =>
-            entityRef
-              .askWithStatus(Idempotent.AbandonRequest(_))
-              .transformWith(_ => Future.failed(failure))
+    idempotencyResult(requestId, Some(entityRef)).flatMap { summary =>
+      if (summary.isIdempotent) {
+        logger.debug("Duplicate idempotency claim observed")
+        Future.successful(
+          summary.repliedOn match {
+            case None => Idempotency.Outcome.Pending
+            case Some(_) => Idempotency.Outcome.Completed(
+              Idempotency.RequestReply(summary.replyHeaders, summary.replyBody))
           }
+        )
+      } else {
+        Future.delegate(responseBodyCallback).transformWith {
+          case Success(response) =>
+            entityRef
+              .askWithStatus[Idempotent.Summary](Idempotent.SingleReply(response.headers, response.body, _))
+              .transform {
+                case Success(recorded) =>
+                  Success(Idempotency.Outcome.Completed(
+                    Idempotency.RequestReply(recorded.replyHeaders, recorded.replyBody)))
+                case Failure(failure) =>
+                  logger.warn("Idempotency reply recording was not confirmed; reconcile the outcome before recovery", failure)
+                  Failure(failure)
+              }
+          case Failure(failure) =>
+            release(requestId).transformWith {
+              case Success(_) => Future.failed(failure)
+              case Failure(releaseFailure) =>
+                logger.warn("Idempotency claim release was not confirmed; explicit recovery may be required", releaseFailure)
+                Future.failed(failure)
+            }
         }
-      )
+      }
+    }
   }
 }
 
@@ -81,4 +124,9 @@ object Idempotency {
 
   final case class RequestReply(headers: Option[Map[String, String]],
                                 body: Option[String])
+
+  enum Outcome {
+    case Pending
+    case Completed(reply: RequestReply)
+  }
 }

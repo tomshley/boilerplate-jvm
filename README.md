@@ -58,6 +58,106 @@ matters in them, never secrets.
 
 ---
 
+## Idempotent request/reply (`reqreply`)
+
+`Idempotent` is a complete cluster-sharded idempotency entity — claim, record,
+release, and status — and `Idempotency.reqReplyOutcome` is the matching client
+flow: claim a request id, run a callback for the fresh claim, and record the
+reply so repeats replay the stored answer instead of re-running.
+
+```scala
+Idempotent.init(system)
+val idempotency = Idempotency(system)
+val outcome = idempotency.reqReplyOutcome(requestId, doWorkOnce())
+```
+
+`reqReplyOutcome` returns `Outcome.Completed(reply)` once a reply is stored
+and `Outcome.Pending` when a duplicate claim has no recorded reply yet;
+failures remain failed futures. `reqReply` is the compatibility form — it maps
+`Pending` to `RequestReply(None, None)` and `Completed` to the reply, which
+cannot distinguish pending from a deliberately recorded empty response. Use
+`reqReplyOutcome` where that distinction matters.
+
+The default entity keeps its bookkeeping in memory: claims and recorded replies
+disappear when the entity stops, is passivated or rebalanced, or the node
+restarts. Journal-backed durability is opt-in. `Idempotent.persistent` returns
+a plain `EventSourcedBehavior`, so the caller chooses the journal, snapshot,
+and supervision through Pekko itself — `withJournalPluginId`, `snapshotWhen`,
+`withRetention`, `Behaviors.supervise` — and owns every type that lands in
+storage. Pekko's `EventAdapter` and `SnapshotAdapter` translate between the
+library's internal `Event`/`State` and the caller's own stored classes, so
+persistence schemas, manifests, and bindings stay caller-owned:
+
+```scala
+Idempotent.init(system, ctx =>
+  Idempotent
+    .persistent(ctx.entityId, PersistenceId("Idempotent", ctx.entityId),
+      myEventAdapter, mySnapshotAdapter)
+    .withJournalPluginId("pekko.persistence.journal.my-plugin")
+    .snapshotWhen(mySnapshotPredicate)
+    .withRetention(myRetentionCriteria))
+```
+
+An explicit `SnapshotAdapter` is required even when snapshotting is disabled.
+This keeps the consumer-owned snapshot schema explicit if snapshotting is
+later enabled through Pekko's native settings. An identity default would
+expose the library's `State` to snapshot serialization instead of lifting it
+to a consumer-owned representation.
+
+For a fresh claim, `reqReplyOutcome` completes only after the entity
+acknowledges recording the reply, and the returned `Completed` response is the
+entity's acknowledged stored reply — even when another record wins first. A
+duplicate with a recorded reply replays the stored headers/body as
+`Completed`; a duplicate with none returns `Pending` without invoking the
+callback. A deliberately recorded empty response is a legitimate `Completed`
+outcome, not pending; `repliedOn` — also exposed by the read-only
+`idempotencyStatus` lookup — identifies a recorded reply.
+
+A failed or thrown callback attempts to release its claim and propagates the
+original failure. If that cleanup is not acknowledged, a warning is logged
+and the claim may remain pending. A reply-record acknowledgement failure does
+not release the claim and logs its own warning: the write or the callback's
+external side effect may already have happened, so an unconfirmed record is an
+uncertain outcome, not evidence to release. An acknowledgement establishes
+recording at the entity, not survival of later in-memory state loss or
+exactly-once external effects.
+
+Between a fresh claim and the recorded reply's acknowledgement there is an
+interval in which an in-memory shard can be rebalanced, passivated, or lost —
+after the callback's external side effect has run. A later retry on a fresh
+claim may then execute the callback again. Deduplication is by key alone: the
+client sends no request payload, so a repeat is never compared by content.
+Direct `SingleRequest`/`SingleReply` commands may store headers and body as
+context, but a repeat still wins by key — reuse a request id only for the same
+logical operation. Likewise the logical key and the `PersistenceId` used by
+`Idempotent.persistent` are a caller-owned mapping: keep the association
+stable across recovery instead of deriving it from arbitrary unique ids.
+
+Recovered in-flight claims are not automatically re-executed or expired.
+`idempotency.release(requestId)` explicitly abandons an incomplete claim and
+returns its acknowledged summary; it leaves a completed reply intact and is
+a no-op for an unclaimed key. In persistent mode a state-changing release is
+journaled before acknowledgement; a failed release future must not be treated
+as confirmation. The low-level equivalent is `Idempotent.AbandonRequest`.
+
+Release is a recovery operation, not cancellation or a fenced takeover. The
+caller must first reconcile the external outcome and ensure the previous
+execution and its outstanding messages cannot later complete or mutate the
+key. A timeout or pending status is not sufficient evidence. Keep new attempts
+quiescent during recovery; an unacknowledged release can still arrive later,
+so do not blindly retry it after admitting a new claim.
+
+Duplicate claims and duplicate reply-record commands increment the existing
+attempt counters and each append a journal event in persistent mode. They are
+not read-only cache hits. The counters retain their existing semantics; callers
+choose retention/compaction using Pekko's native persistence settings and use
+`idempotencyStatus` for read-only observation.
+
+A caller-built behavior remains an option — `Idempotent.init(system, ctx => ...)`
+takes any `Behavior[Command]` factory under the same entity key.
+
+---
+
 ## Managed server setup
 
 `ManagedSetup` is an immutable Pekko `Setup` value carried by `ActorSystemSetup`: build it once, pass it to `ActorSystemMain` (or `PekkoClusterMain`), and every `WebServerBoilerplate`, `GrpcServerBoilerplate`, and `TcpServerBoilerplate` listener started inside that actor system picks it up. The defaults apply only to these boilerplate listeners — anything bound directly through `Http().newServerAt`, `Tcp().bind`, or Pekko Management is unaffected. The setup-aware `apply` overloads return the `ActorSystem` handle so callers own shutdown; the original two-argument `apply` remains `Unit` for the existing fire-and-forget contract.
