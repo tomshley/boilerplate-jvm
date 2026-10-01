@@ -89,6 +89,29 @@ final class IdempotentBehaviorSpec
       reply.getValue.isIdempotent shouldBe false
     }
 
+    "answer repeated empty abandons without claiming, and keep a released claim fresh" in {
+      val probe = createTestProbe[StatusReply[Idempotent.Summary]]()
+      val ref = spawn(Idempotent("k1"))
+
+      ref ! Idempotent.AbandonRequest(probe.ref)
+      probe.receiveMessage().getValue shouldBe Idempotent.State.empty.toSummary
+      ref ! Idempotent.AbandonRequest(probe.ref)
+      probe.receiveMessage().getValue shouldBe Idempotent.State.empty.toSummary
+
+      ref ! Idempotent.SingleRequest(None, None, probe.ref)
+      probe.receiveMessage().getValue.isIdempotent shouldBe false
+
+      ref ! Idempotent.AbandonRequest(probe.ref)
+      probe.receiveMessage().getValue shouldBe Idempotent.State.empty.toSummary
+      ref ! Idempotent.AbandonRequest(probe.ref)
+      probe.receiveMessage().getValue shouldBe Idempotent.State.empty.toSummary
+
+      ref ! Idempotent.SingleRequest(None, None, probe.ref)
+      val reply = probe.receiveMessage()
+      reply.isSuccess shouldBe true
+      reply.getValue.isIdempotent shouldBe false
+    }
+
     "retain a completed reply when abandonment is requested" in {
       val probe = createTestProbe[StatusReply[Idempotent.Summary]]()
       val ref = spawn(Idempotent("k1"))
