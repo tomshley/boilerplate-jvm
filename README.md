@@ -158,6 +158,60 @@ takes any `Behavior[Command]` factory under the same entity key.
 
 ---
 
+## Same-origin subresource proxying (`reqreply.proxy`)
+
+`SubresourceReverseProxy` serves declared third-party subresources — a tracker
+script, a vendor beacon — from the site's own origin through a declared local
+route. All parsing and validation happens once at wiring: `Endpoint.create` and
+`SubresourceReverseProxy.create` return `Either[ConfigError, ...]` values the
+caller handles, and `proxyRoutes` refuses proxies whose mounted paths would
+shadow each other.
+
+```scala
+import com.tomshley.boilerplate.jvm.reqreply.proxy.{SubresourceReverseProxy, SubresourceReverseProxyDirectives}
+import org.apache.pekko.http.scaladsl.model.HttpMethods
+
+val wired =
+  for
+    script <- SubresourceReverseProxy.Endpoint.create("/script.js", Set(HttpMethods.GET))
+    beacon <- SubresourceReverseProxy.Endpoint.create("/api/send", Set(HttpMethods.POST))
+    proxy  <- SubresourceReverseProxy.create(
+                name = "analytics",
+                upstream = "https://upstream.example",
+                mount = "/vendor",
+                endpoints = Seq(script, beacon),
+                timeout = configuredTimeout)          // caller-owned config value
+    route  <- SubresourceReverseProxyDirectives.proxyRoutes(Seq(proxy))
+  yield route
+```
+
+The snippet needs a `given ActorSystem[?]` in scope and a `configuredTimeout`
+`FiniteDuration` from the caller's own configuration. Only the declared
+endpoint paths answer — exact matches under the mount, only the declared
+methods, and the inbound query is never forwarded — so the upstream surface is
+the closed declared set, not an open proxy. `timeout` bounds the wait for
+upstream response headers (a late reply is drained so it cannot hold a pool
+slot); it is not transport cancellation or a whole-body deadline, and
+connection-pool, idle, and TLS settings stay with the caller's HTTP client —
+the `Send` overloads accept a custom `HttpRequest => Future[HttpResponse]` for
+exactly that.
+
+Application headers are optional allowlists in both directions — the defaults
+are `user-agent`/`referer`/`accept-language` upstream and cache validators back.
+Separately, protocol metadata is always carried because the entity bytes pass
+through untouched: `content-encoding` in both directions; `content-range`,
+`cache-control`, `vary`, `expires`, `age`, and `date` on responses; and
+`content-type`/`content-length`, which ride on the entity itself. `cookie`,
+`authorization`, `host`, and the `forwarded`/`x-forwarded-*` family can never
+ride upstream, and `set-cookie`/`www-authenticate` can never come back —
+declaring one fails wiring. Fields a `Connection` header nominates are stripped
+per RFC 9110, and nominating protected metadata fails the exchange outright
+(`400` inbound, `502` from upstream). Chunk extensions and trailers are dropped
+on streamed bodies. First-party proxying changes who the browser connects to —
+it does not make vendor content trustworthy.
+
+---
+
 ## Managed server setup
 
 `ManagedSetup` is an immutable Pekko `Setup` value carried by `ActorSystemSetup`: build it once, pass it to `ActorSystemMain` (or `PekkoClusterMain`), and every `WebServerBoilerplate`, `GrpcServerBoilerplate`, and `TcpServerBoilerplate` listener started inside that actor system picks it up. The defaults apply only to these boilerplate listeners — anything bound directly through `Http().newServerAt`, `Tcp().bind`, or Pekko Management is unaffected. The setup-aware `apply` overloads return the `ActorSystem` handle so callers own shutdown; the original two-argument `apply` remains `Unit` for the existing fire-and-forget contract.
