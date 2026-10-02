@@ -6,6 +6,13 @@ This project follows Semantic Versioning.
 
 ---
 
+## [4.1.0] — 2026-10-02
+
+### Added
+- **`reqreply.proxy` subresource reverse proxy** — declared same-origin routes for upstream subresources with typed wiring errors, exact path and method matching, allowlisted application headers, protocol metadata retention, a bounded wait for upstream response headers, and streamed entity preservation. The caller owns endpoint selection, HTTP client lifecycle, and upstream trust policy.
+
+---
+
 ## [4.0.0] — 2026-10-01
 
 ### Added
