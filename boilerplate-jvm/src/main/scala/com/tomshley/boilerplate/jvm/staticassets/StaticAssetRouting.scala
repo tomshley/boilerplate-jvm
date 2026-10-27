@@ -1,84 +1,44 @@
 package com.tomshley.boilerplate.jvm.staticassets
 
-import com.tomshley.boilerplate.jvm.staticassets.exceptions.StaticAssetRoutingRejection
+import com.tomshley.boilerplate.jvm.staticassets.StaticAssetCaching.CachePolicy
+import com.tomshley.boilerplate.jvm.staticassets.StaticAssetDirectives.{cacheControlled, staticAssetEntity, staticAssetsFrom}
 import com.tomshley.boilerplate.jvm.utils.FilesUtil
-import org.apache.pekko.actor
 import org.apache.pekko.actor.typed.ActorSystem
-import org.apache.pekko.http.javadsl.{model, server}
-import org.apache.pekko.http.scaladsl.model.*
-import org.apache.pekko.http.scaladsl.server.Directives.{RemainingPath, complete, extractExecutionContext, onComplete, path, pathPrefix, reject}
-import org.apache.pekko.http.scaladsl.server.{Directives, RejectionWithOptionalCause, Route}
-import org.apache.pekko.stream.scaladsl.{Concat, Flow, Source, StreamConverters}
-import org.apache.pekko.util.ByteString
+import org.apache.pekko.http.scaladsl.server.Directives.{complete, conditional}
+import org.apache.pekko.http.scaladsl.server.Route
 
-import scala.util.{Failure, Success}
-
+/** Static-asset routes; the inherited `FilesUtil` methods remain for API compatibility. */
 trait StaticAssetRouting extends FilesUtil {
-  private def matchFileExtension(path: String): Option[StaticAssetType] = {
-    StaticAssetType.values
-      .find(assetType => {
-        s".${assetType.toExtension}" == nameAndExtensionPair(path)._2
-      })
-  }
-  def getStaticAssetRoute(system: ActorSystem[?]): Route =
-    Directives.get {
-      pathPrefix("static") {
-        path(RemainingPath) { pastePathWithExt =>
-          matchFileExtension(pastePathWithExt.toString) match {
-            case None =>
-              reject(
-                StaticAssetRoutingRejection(
-                  "An unsupported asset type specified"
-                )
-              )
-            case Some(matchedHTTPAssetType) =>
-              extractExecutionContext { implicit executor =>
-                onComplete {
-                  given materializer: actor.ActorSystem =
-                    system.classicSystem
 
-                  /*
-                  Note: this will eventually support concating files
-                   */
-                  val requestedFiles = Seq(s"$pastePathWithExt")
-                  Source
-                    .combine(
-                      requestedFiles
-                        .map {
-                          getClass.getClassLoader.getResource(_)
-                        }
-                        .map(
-                          pathUrl =>
-                            StreamConverters
-                              .fromInputStream(() => pathUrl.openStream())
-                        )
-                        .map(
-                          inputSource =>
-                            inputSource
-                              .via(Flow[ByteString].map(_.map(_.toChar.toByte)))
-                        )
-                    )(Concat[ByteString])
-                    .runReduce(_ ++ _)
-                } {
-                  case Failure(exception) =>
-                    reject(
-                      StaticAssetRoutingRejection(
-                        "An error occurred reading the file"
-                      )
-                    )
-                  case Success(value: ByteString) =>
-                    complete(
-                      HttpResponse(
-                        entity = HttpEntity(
-                          matchedHTTPAssetType.toContentType,
-                          value
-                        )
-                      )
-                    )
-                }
-              }
-          }
-        }
+  /** Classpath serving of requests below `/static/`; the overload taking a
+    * `CachePolicy` adds content validators and cache headers. Each route
+    * value owns an index actor that computes an asset's validator and byte
+    * length on the first request for a path; the response body streams the
+    * resource.
+    */
+  def getStaticAssetRoute(system: ActorSystem[?]): Route =
+    staticAssetsFrom(system, getClass.getClassLoader) { (_, asset) =>
+      complete(staticAssetEntity(asset))
+    }
+
+  /**
+   * The same static-asset route, with opt-in cache validators: every served
+   * resource carries a strong `ETag` computed from its bytes, conditional
+   * requests are answered through Pekko's `conditional` directive, and the
+   * caller's `cachePolicy` supplies the `Cache-Control` header on `200` and
+   * `304` responses — other statuses are left untouched, and where the policy
+   * is undefined no header is sent. The policy is consulted only for a
+   * resource that exists and has a supported extension. The validator and
+   * length are computed once per path on first request and kept for the life
+   * of the system: a `304` costs no I/O, a `200` streams the resource, and
+   * nothing is stored for a path that fails to load.
+   */
+  def getStaticAssetRoute(
+      system: ActorSystem[?],
+      cachePolicy: CachePolicy): Route =
+    staticAssetsFrom(system, getClass.getClassLoader) { (path, asset) =>
+      (cacheControlled(cachePolicy)(path) & conditional(asset.etag)) {
+        complete(staticAssetEntity(asset))
       }
     }
 }
