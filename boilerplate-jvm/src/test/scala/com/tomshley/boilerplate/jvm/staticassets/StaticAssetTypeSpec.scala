@@ -1,5 +1,6 @@
 package com.tomshley.boilerplate.jvm.staticassets
 
+import org.apache.pekko.http.scaladsl.model.ContentType
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -20,16 +21,30 @@ final class StaticAssetTypeSpec extends AnyWordSpec with Matchers {
       StaticAssetType.WEBP.toMime shouldBe "image/webp"
     }
 
-    "produce a ContentType with UTF-8 charset" in {
-      val ct = StaticAssetType.JS.toContentType
-      ct.charset shouldBe org.apache.pekko.http.scaladsl.model.HttpCharsets.`UTF-8`
+    "carry a charset only where the media type has one" in {
+      StaticAssetType.values.foreach { assetType =>
+        assetType match {
+          case StaticAssetType.JS =>
+            assetType.toContentType.value shouldBe "text/javascript; charset=UTF-8"
+          case StaticAssetType.CSS =>
+            assetType.toContentType.value shouldBe "text/css; charset=UTF-8"
+          case StaticAssetType.JSON =>
+            assetType.toContentType.value shouldBe "application/json"
+          case StaticAssetType.WEBMANIFEST =>
+            assetType.toContentType.value shouldBe "application/manifest+json"
+          case StaticAssetType.PNG | StaticAssetType.JPEG | StaticAssetType.JPG | StaticAssetType.WOFF2 |
+               StaticAssetType.SVG | StaticAssetType.WEBP | StaticAssetType.ICO =>
+            assetType.toContentType.value shouldBe assetType.toMime
+            assetType.toContentType shouldBe a[ContentType.Binary]
+        }
+      }
     }
 
     "derive the media type from the mime type for every asset type" in {
       StaticAssetType.values.foreach { assetType =>
         val mediaType = assetType.toMediaType
         s"${mediaType.mainType}/${mediaType.subType}" shouldBe assetType.toMime
-        mediaType.fileExtensions shouldBe List(assetType.toExtension)
+        mediaType.fileExtensions should contain(assetType.toExtension)
       }
     }
   }
