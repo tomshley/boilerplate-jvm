@@ -6,6 +6,26 @@ This project follows Semantic Versioning.
 
 ---
 
+## [4.2.0] — 2026-10-27
+
+### Added
+- **Opt-in cache validators for `/static/` assets** — a `getStaticAssetRoute` overload accepts a `CachePolicy` partial function over the request path, adding a strong `ETag`, conditional-request handling (`If-None-Match` → `304`, `If-Match` → `412`), and caller-selected `Cache-Control` headers on `200` and `304` responses. `StaticAssetCaching` supplies `immutableWhere(segment-regex)`, `revalidate`, and `immutable` building blocks that compose with `orElse` over decoded URI segments.
+- **Per-route asset index** — each route value owns a typed index actor that computes a path's SHA-256 validator and byte length on first request and keeps them for the life of the system: a `304` costs no I/O, a `200` streams the body with a known `Content-Length`, and concurrent first hits on one path share a single load. A path whose lookup or read fails is never remembered and retries on the next request; the key space is the packaged asset set, so no eviction is needed.
+- **`StaticAssetDirectives`** — the same pieces the route composes, as ordinary Pekko directives: `staticAssets`/`staticAssetsFrom` (resolve path → `StaticAsset` with type, validator, length, and a re-materializable body stream), `staticAssetEntity`, and `cacheControlled`, joined with `&` for routes the named overloads do not cover.
+- **`tomshley-boilerplate-staticassets.ask-timeout`** — how long a first read and digest of an asset may take before the request is rejected (`TOMSHLEY_BOILERPLATE_STATICASSETS_ASK_TIMEOUT`, 5 seconds by default).
+
+### Changed
+- **Content types follow Pekko's media-type registry** — `StaticAssetType` now exposes `MediaType`/`ContentType`, so `text/css` and `text/javascript` keep `charset=UTF-8` while images, fonts, and JSON assets no longer carry a charset they never had.
+- **Response bodies stream instead of buffering** — positive-length assets complete with `HttpEntity.Default`, so per-request memory is one backpressured chunk rather than the whole resource; zero-length assets keep their content type via `HttpEntity.empty`.
+- **Defense in depth on asset paths** — a request path containing a decoded `.` or `..` segment rejects before any class-loader access, and lookup/read failures carry their cause on `StaticAssetRoutingRejection` for the caller's diagnostics.
+
+### Migration notes
+- `getStaticAssetRoute(system)` is unchanged in shape; callers wanting validators pass a `CachePolicy` as the new second argument — no behavior changes until they do.
+- The standalone `staticAsset` and `contentValidated` directives are replaced: compose `staticAssets(system)` (built once at wiring — the value owns the index actor) with `conditional(asset.etag)` and `staticAssetEntity(asset)`. The README's static-asset section shows the equivalent route.
+- A running process serves the validator and length it first computed; a dev-mode exploded classes directory edited in place keeps its old index entries until restart.
+
+---
+
 ## [4.1.0] — 2026-10-02
 
 ### Added
