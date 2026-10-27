@@ -78,31 +78,21 @@ import org.apache.pekko.http.scaladsl.model.*
  *  |   .7z       | 7-zip archive	                                    |	application/x-7z-compressed
  */
 
-enum StaticAssetType(mimeTypeValue: String) {
-  case JS extends StaticAssetType("text/javascript")
-  case CSS extends StaticAssetType("text/css")
-  case PNG extends StaticAssetType("image/png")
-  case JPEG extends StaticAssetType("image/jpeg")
-  case JPG extends StaticAssetType("image/jpeg")
-  case WOFF2 extends StaticAssetType("font/woff2")
-  case SVG extends StaticAssetType("image/svg+xml")
-  case JSON extends StaticAssetType("application/json")
-  case WEBP extends StaticAssetType("image/webp")
-  case ICO extends StaticAssetType("image/vnd.microsoft.icon")
-  case WEBMANIFEST extends StaticAssetType("application/manifest+json")
+enum StaticAssetType(val toMediaType: MediaType) {
+  case JS extends StaticAssetType(MediaType.customWithOpenCharset("text", "javascript", fileExtensions = List("js")))
+  case CSS extends StaticAssetType(MediaTypes.`text/css`)
+  case PNG extends StaticAssetType(MediaTypes.`image/png`)
+  case JPEG extends StaticAssetType(MediaTypes.`image/jpeg`)
+  case JPG extends StaticAssetType(MediaTypes.`image/jpeg`)
+  case WOFF2 extends StaticAssetType(MediaTypes.`font/woff2`)
+  case SVG extends StaticAssetType(MediaTypes.`image/svg+xml`)
+  case JSON extends StaticAssetType(MediaTypes.`application/json`)
+  case WEBP extends StaticAssetType(MediaTypes.`image/webp`)
+  case ICO extends StaticAssetType(MediaType.customBinary("image", "vnd.microsoft.icon", MediaType.NotCompressible, fileExtensions = List("ico")))
+  case WEBMANIFEST extends StaticAssetType(MediaType.customWithFixedCharset("application", "manifest+json", HttpCharsets.`UTF-8`, fileExtensions = List("webmanifest")))
 
   def toExtension: String = toString.toLowerCase
-
-  def toContentType: ContentType.WithCharset = ContentType(
-    this.toMediaType,
-    HttpCharsets.`UTF-8`
-  )
-
-  def toMediaType: MediaType.WithOpenCharset = {
-    val (mainType, slashSubType) = toMime.span(_ != '/')
-    MediaType.customWithOpenCharset(mainType, slashSubType.drop(1), fileExtensions = List(toExtension))
-  }
-
-  def toMime: String = mimeTypeValue
+  def toMime: String = toMediaType.value
+  val toContentType: ContentType = ContentType(toMediaType, () => HttpCharsets.`UTF-8`)
 }
 

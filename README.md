@@ -212,6 +212,105 @@ it does not make vendor content trustworthy.
 
 ---
 
+## Static assets (`staticassets`)
+
+`StaticAssetRouting.getStaticAssetRoute` serves files under `/static/` from the
+classpath: the request path below that prefix is resolved against the class
+loader and the file extension is mapped to a content type through
+`StaticAssetType`. An unsupported extension, a path containing `.` or `..`
+segments, or a missing resource rejects with
+`StaticAssetRoutingRejection`, leaving the rendered response to the caller's
+rejection handler; lookup and read failures carry their cause on the
+rejection for diagnostics. Content types come from Pekko's media-type
+registry: `text/css` and `text/javascript` carry `charset=UTF-8`, JSON types
+render without a charset parameter, and images and fonts are binary.
+
+Correct caching is one line, through a `CachePolicy` — a plain
+``PartialFunction[Uri.Path, `Cache-Control`]`` applied to the request path
+below `/static/`:
+
+```scala
+import com.tomshley.boilerplate.jvm.staticassets.StaticAssetCaching
+import com.tomshley.boilerplate.jvm.staticassets.StaticAssetCaching.{immutableWhere, revalidate}
+
+getStaticAssetRoute(system, StaticAssetCaching.immutable)                        // every file immutable
+getStaticAssetRoute(system, immutableWhere("""\d+-[0-9a-f]{8}""".r) orElse revalidate)
+```
+
+`StaticAssetCaching` provides `immutable` (`public, max-age=31536000,
+immutable` on every path), `revalidate` (`no-cache` on every path) and
+`immutableWhere(segment: Regex)` (immutable on paths where some decoded path
+segment fully matches, undefined otherwise — an encoded slash stays inside
+its segment). Policies combine with the standard `orElse`; a caller may also
+pass its own `PartialFunction` in place of any named policy. Where a policy is
+undefined, no `Cache-Control` is sent. The library ships no default hash
+pattern — which of a caller's paths carry content-derived names is the
+caller's decision.
+
+The one-argument overload sends the bare entity — no `ETag`, no
+`Cache-Control`, and conditional-request headers are ignored. The
+two-argument overload lets clients revalidate the bytes with an ETag; the
+caller's cache policy controls freshness.
+
+- **ETag:** a strong `"<first 16 hex digits of the SHA-256 of the bytes>"`.
+- **Conditional requests:** Pekko's `conditional` directive answers a matching
+  `If-None-Match` — including weak tags and `*` — with `304 Not Modified` and
+  no body, and an `If-Match` that does not match — a weak tag never does —
+  with `412`.
+- **Cache-Control:** added to `200` and `304` responses where the policy is
+  defined; every other status, `412` included, is left untouched. The policy
+  is consulted only for a resource that exists and has a supported extension;
+  rejections are unchanged. A `Cache-Control` the route sets itself is
+  authoritative — the policy supplies the header only where none was sent, so
+  an explicit `no-store` is neither duplicated nor overridden.
+
+Each route value owns an index — an actor on the given actor system — that
+computes a path's validator and byte length on its first request and keeps
+them for the life of the system. The stored data is derived and write-once:
+there is no eviction, because the key space is the packaged asset set, and a
+path whose lookup or read fails is never remembered — the next request
+retries. A `200` streams the resource with a known `Content-Length`; a `304`
+needs no I/O at all. How long a first read and digest of an asset may take
+before the request is rejected is
+`tomshley-boilerplate-staticassets.ask-timeout`
+(`TOMSHLEY_BOILERPLATE_STATICASSETS_ASK_TIMEOUT`), 5 seconds by default. A
+running process serves the validator and length it first computed: a packaged
+jar cannot change underneath it, but a dev-mode exploded classes directory
+edited in place keeps its old index entries until restart.
+
+For a route the named overload does not cover — an added response header, for
+example — `StaticAssetDirectives` exposes the same pieces the route itself
+composes: `staticAssets` and `cacheControlled` as ordinary Pekko directives
+that join with `&`, and `staticAssetEntity` for the body:
+
+```scala
+import com.tomshley.boilerplate.jvm.staticassets.StaticAssetDirectives.*
+import org.apache.pekko.http.scaladsl.model.headers.RawHeader
+import org.apache.pekko.http.scaladsl.server.Directives.{complete, conditional, respondWithHeader}
+
+val assets = staticAssets(system)            // once, at wiring: it owns the index
+val custom = assets { (path, asset) =>
+  (cacheControlled(cachePolicy)(path) & conditional(asset.etag) & respondWithHeader(RawHeader("x-asset-build", "42"))) {
+    complete(staticAssetEntity(asset))
+  }
+}
+```
+
+The `ETag` describes the stored bytes. If a route transforms the body before
+it reaches the wire — compressing it, say — the tag no longer describes the
+representation sent, and the route must attach a validator for the
+transformed representation together with the right `Vary` header, or use
+Pekko's `conditional` with a weak tag where that is the appropriate strength.
+
+The standalone `staticAssets` directive resolves resources through the class
+loader that loaded `StaticAssetDirectives`; `getStaticAssetRoute` uses the
+class loader of the class mixing in `StaticAssetRouting`. Digest work runs on
+the materializer of the actor system passed in; response bodies materialize
+where the route runs. Build the directive once at wiring: the returned value
+owns the index actor.
+
+---
+
 ## Managed server setup
 
 `ManagedSetup` is an immutable Pekko `Setup` value carried by `ActorSystemSetup`: build it once, pass it to `ActorSystemMain` (or `PekkoClusterMain`), and every `WebServerBoilerplate`, `GrpcServerBoilerplate`, and `TcpServerBoilerplate` listener started inside that actor system picks it up. The defaults apply only to these boilerplate listeners — anything bound directly through `Http().newServerAt`, `Tcp().bind`, or Pekko Management is unaffected. The setup-aware `apply` overloads return the `ActorSystem` handle so callers own shutdown; the original two-argument `apply` remains `Unit` for the existing fire-and-forget contract.
