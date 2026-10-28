@@ -1,3 +1,22 @@
+/*
+ * copyright 2017–present tomshley llc
+ *
+ * licensed under the apache license, version 2.0 (the "license");
+ * you may not use this file except in compliance with the license.
+ * you may obtain a copy of the license at
+ *
+ * http://www.apache.org/licenses/license-2.0
+ *
+ * unless required by applicable law or agreed to in writing, software
+ * distributed under the license is distributed on an "as is" basis,
+ * without warranties or conditions of any kind, either express or implied.
+ * see the license for the specific language governing permissions and
+ * limitations under the license.
+ *
+ * @author thomas schena @sgoggles <https://github.com/sgoggles> | <https://gitlab.com/sgoggles>
+ *
+ */
+
 lazy val boilerplateProjectName = "boilerplate-jvm"
 lazy val boilerplateProjectOrgName = "com.tomshley.boilerplate"
 
@@ -28,6 +47,14 @@ lazy val `boilerplate-jvm` = (Project("boilerplate-jvm", file("boilerplate-jvm")
   .settings(
     name := boilerplateProjectName,
     organization := boilerplateProjectOrgName,
+    licenses := {
+      val tagOrBranch =
+        if (version.value.endsWith("SNAPSHOT")) "main"
+        else "v" + version.value
+      Seq(
+        ("Apache-2.0", url("https://raw.githubusercontent.com/tomshley/boilerplate-jvm/" + tagOrBranch + "/LICENSE"))
+      )
+    },
     magicRootPublishGitLabProjectId := 70100980,
     // Credential file lives in .secure_files/ (not project root)
     credentials += Credentials(file(".secure_files/.credentials.gitlab")),

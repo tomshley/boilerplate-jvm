@@ -1,3 +1,13 @@
+# boilerplate-jvm v4.2.1
+
+**Date:** 2026-10-28
+
+## Changed
+
+- Apache License 2.0 applied consistently: verbatim LICENSE text, NOTICE rename, Apache short header in every first-party source file, corrected license metadata.
+
+---
+
 # Changelog
 
 All notable changes to this project are documented in this file.
