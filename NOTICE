@@ -50,6 +50,7 @@ These assets are provided to ensure:
 
 ## Third-Party Notices
 
-At this time, this project does not bundle third-party source code requiring additional attribution.
+The following files contain third-party code and carry their original attributions in-file:
 
-If third-party components are added in the future, required attributions will be documented here.
+- `boilerplate-jvm/src/main/java/com/tomshley/boilerplate/jvm/util/FastBase64.java` — incorporates code by Mikael Grev, MiG InfoCom AB (Copyright (c) 2004), distributed under the BSD license as reproduced in the file.
+- `boilerplate-jvm/src/main/java/com/tomshley/boilerplate/jvm/util/JavaStringUtils.java` — incorporates code Copyright (c) 1997 World Wide Web Consortium (Massachusetts Institute of Technology, European Research Consortium for Informatics and Mathematics, Keio University), distributed under the W3C Software License as referenced in the file.
