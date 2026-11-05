@@ -311,6 +311,68 @@ owns the index actor.
 
 ---
 
+## Transactional produce stall guard (`kafka.util`)
+
+`ProduceStallGuard` bounds how long an element handed to a
+`Transactional.flow` produce stage may go unsettled. `submitting` marks
+each element on the way in, `settling` marks it on the way out, and a
+deadline runs while at least one element is unsettled — restarting from
+the last settle. If the deadline expires, the guard aborts the stream
+once through the bound kill switch with `ProduceStallGuard.Stall`.
+
+This is a defensive bound, not a workaround for a known bug. The Kafka
+client's own limits (`delivery.timeout.ms`, `request.timeout.ms`,
+`max.block.ms`, `transaction.timeout.ms`) already bound every Kafka
+producer outcome; the guard covers an asynchronous callback
+lost inside the connector's own stage, for which no incident,
+reproduction, or upstream issue is known. It exists so a caller can
+name a hard ceiling instead of letting one hang turn into an
+unrestarting pipeline.
+
+```scala
+RestartSource.onFailuresWithBackoff(restartSettings) { () =>
+  ProduceStallGuard.guarded("orders", 60.seconds) { guard =>
+    Transactional.source(consumerSettings, Subscriptions.topics(inputTopic))
+      .mapAsync(1)(handle)            // ProducerMessage.Envelope[K, V, PartitionOffset]
+      .via(guard.submitting)
+      .via(Transactional.flow(producerSettings, transactionalId))
+      .via(guard.settling)
+  } // error mapping, if any, goes here — downstream of the guard's kill switch
+}
+```
+
+`guarded` creates one guard per inner materialization — a blueprint
+that is never materialized spawns nothing, and a `RestartSource`
+restart never inherits a tripped guard. `guardedBy` places the same
+kill switch on an already-built source. Callers that place their own
+kill switch can drive the four primitives directly:
+`ProduceStallGuard(label, bound)` on the actor system, then
+`guard.bind(switch.abort)`, `guard.submitted(element)` /
+`guard.submitting`, `guard.settled()` / `guard.settling`, and
+`guard.shutdown()` — fire-and-forget; an expiry already enqueued may
+still call `abort` on a terminated kill switch, which is a no-op.
+
+`submitted` accepts any element with `Positioned` evidence: the
+shipped instances cover `RecordPosition`,
+`ConsumerMessage.PartitionOffset`, `ConsumerRecord`,
+`ConsumerMessage.TransactionalMessage`, and any
+`ProducerMessage.Envelope` whose pass-through is itself positioned.
+Callers add an instance for their own element types:
+
+```scala
+given Positioned[MyElement] with
+  extension (a: MyElement) def position: RecordPosition =
+    RecordPosition(a.topic, a.partition, a.offset)
+```
+
+`Stall` carries the caller's label, the bound, and the last submitted
+`RecordPosition` — `topic-partition@offset` — never record contents.
+Everything else stays the caller's: the bound, the restart policy
+around the abort, and any error mapping, which must sit downstream of
+the `guardedBy` kill switch so a `Stall` reaches it.
+
+---
+
 ## Managed server setup
 
 `ManagedSetup` is an immutable Pekko `Setup` value carried by `ActorSystemSetup`: build it once, pass it to `ActorSystemMain` (or `PekkoClusterMain`), and every `WebServerBoilerplate`, `GrpcServerBoilerplate`, and `TcpServerBoilerplate` listener started inside that actor system picks it up. The defaults apply only to these boilerplate listeners — anything bound directly through `Http().newServerAt`, `Tcp().bind`, or Pekko Management is unaffected. The setup-aware `apply` overloads return the `ActorSystem` handle so callers own shutdown; the original two-argument `apply` remains `Unit` for the existing fire-and-forget contract.
