@@ -1,18 +1,25 @@
-# boilerplate-jvm v4.2.1
-
-**Date:** 2026-10-28
-
-## Changed
-
-- Apache License 2.0 applied consistently: verbatim LICENSE text, NOTICE rename, Apache short header in every first-party source file, corrected license metadata.
-
----
-
 # Changelog
 
 All notable changes to this project are documented in this file.
 
 This project follows Semantic Versioning.
+
+---
+
+## [4.3.0] — 2026-11-05
+
+### Added
+- **Transactional produce stall guard (`kafka.util`)** — `ProduceStallGuard` bounds how long elements handed to a `Transactional.flow` produce stage may go unsettled, turning a silently stuck stage into a failure the caller's restart policy can act on. A pure state machine (`ProduceStallWatcher`) interpreted by a timer actor arms when the first element is in flight, re-arms while settles keep arriving, and disarms on the final settle; on expiry it aborts the materialization once through the caller's kill switch with a `Stall` carrying only the caller's label, the bound, and the last submitted `RecordPosition` (topic, partition, offset — never record contents). `submitting`/`settling` pass-through stages mark the produce-stage boundaries, `guardedBy` attaches a guard to an existing source (inserting the kill switch, binding the abort, and shutting the guard down on termination), and `guarded` builds one guard per materialization so a `RestartSource` rematerialization never inherits a tripped guard. `Positioned` type-class evidence covers `ConsumerMessage.PartitionOffset`, `ConsumerRecord`, `TransactionalMessage`, and pass-through `Envelope`s, with caller-supplied instances for anything else. This is a defensive bound beside Kafka's client timeouts, which already bound normal producer outcomes; it covers only a lost callback inside the connector's produce stage.
+
+### Fixed
+- **`empty.css` static-asset test fixture restored to zero bytes** — the license-header pass had stamped a header into the fixture, breaking `StaticAssetRoutingSpec`'s empty-body contract (an empty response body and the empty-content SHA-256 etag).
+
+---
+
+## [4.2.1] — 2026-10-28
+
+### Changed
+- Apache License 2.0 applied consistently: verbatim LICENSE text, NOTICE rename, Apache short header in every first-party source file, corrected license metadata.
 
 ---
 
